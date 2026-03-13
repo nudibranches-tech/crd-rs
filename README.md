@@ -17,7 +17,7 @@ Add the crate you need as a dependency. You must also depend on `k8s-openapi` an
 [dependencies]
 crd-rs-cnpg = "0.1"
 crd-rs-cilium = "0.1"
-k8s-openapi = { version = "0.24", features = ["v1_32"] }
+k8s-openapi = { version = "0.27", features = ["v1_32"] }
 ```
 
 ```rust
