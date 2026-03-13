@@ -6,8 +6,8 @@ Rust bindings for Kubernetes Custom Resource Definitions (CRDs), auto-generated 
 
 | Crate | Upstream | Source Version |
 |-------|----------|----------------|
-<!-- cnpg-version -->| `cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.28.1` |
-<!-- cilium-version -->| `cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
+<!-- cnpg-version -->| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.28.1` |
+<!-- cilium-version -->| `crd-rs-cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
 
 ## Usage
 
@@ -15,14 +15,14 @@ Add the crate you need as a dependency. You must also depend on `k8s-openapi` an
 
 ```toml
 [dependencies]
-cnpg = "0.1"
-cilium = "0.1"
+crd-rs-cnpg = "0.1"
+crd-rs-cilium = "0.1"
 k8s-openapi = { version = "0.24", features = ["v1_32"] }
 ```
 
 ```rust
-use cnpg::cluster::Cluster;
-use cilium::network_policy::CiliumNetworkPolicy;
+use crd_rs_cnpg::cluster::Cluster;
+use crd_rs_cilium::network_policy::CiliumNetworkPolicy;
 ```
 
 ## Updating CRDs

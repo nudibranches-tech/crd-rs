@@ -1,6 +1,6 @@
-name-template: 'cnpg@$RESOLVED_VERSION'
-tag-template: 'cnpg@$RESOLVED_VERSION'
-tag-prefix: cnpg@
+name-template: 'crd-rs-cnpg@$RESOLVED_VERSION'
+tag-template: 'crd-rs-cnpg@$RESOLVED_VERSION'
+tag-prefix: crd-rs-cnpg@
 template: |
   ## What's Changed
 

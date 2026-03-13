@@ -14,7 +14,7 @@ fi
 CNPG_BASE_URL="https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/${CNPG_REF}/config/crd/bases"
 
 echo "$CNPG_REF" > "$ROOT_DIR/crds/cnpg/VERSION"
-sed -i "s#<!-- cnpg-version -->.*#<!-- cnpg-version -->| \`cnpg\` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | \`${CNPG_REF}\` |#" "$ROOT_DIR/README.md"
+sed -i "s#<!-- cnpg-version -->.*#<!-- cnpg-version -->| \`crd-rs-cnpg\` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | \`${CNPG_REF}\` |#" "$ROOT_DIR/README.md"
 
 # CRD file -> module name mapping
 declare -A CRDS=(
@@ -78,7 +78,7 @@ echo -e "$LIB_RS" >> "${SRC_DIR}/lib.rs"
 # Create Cargo.toml
 cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 [package]
-name = "cnpg"
+name = "crd-rs-cnpg"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -103,8 +103,8 @@ EOF
 
 echo "==> Formatting..."
 cd "$ROOT_DIR"
-cargo fmt -p cnpg
+cargo fmt -p crd-rs-cnpg
 
 echo "==> Running cargo check..."
-K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p cnpg
+K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p crd-rs-cnpg
 echo "==> CNPG crate compiles successfully."

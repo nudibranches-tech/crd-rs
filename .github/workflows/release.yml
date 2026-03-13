@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - "cilium@*"
-      - "cnpg@*"
+      - "crd-rs-cilium@*"
+      - "crd-rs-cnpg@*"
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"

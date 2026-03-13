@@ -14,7 +14,7 @@ fi
 CILIUM_BASE_URL="https://raw.githubusercontent.com/cilium/cilium/${CILIUM_REF}/pkg/k8s/apis/cilium.io/client/crds"
 
 echo "$CILIUM_REF" > "$ROOT_DIR/crds/cilium/VERSION"
-sed -i "s#<!-- cilium-version -->.*#<!-- cilium-version -->| \`cilium\` | [Cilium](https://github.com/cilium/cilium) | \`${CILIUM_REF}\` |#" "$ROOT_DIR/README.md"
+sed -i "s#<!-- cilium-version -->.*#<!-- cilium-version -->| \`crd-rs-cilium\` | [Cilium](https://github.com/cilium/cilium) | \`${CILIUM_REF}\` |#" "$ROOT_DIR/README.md"
 
 # version/filename -> module name
 declare -A CRDS=(
@@ -89,7 +89,7 @@ echo -e "$LIB_RS" >> "${SRC_DIR}/lib.rs"
 # Create Cargo.toml
 cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 [package]
-name = "cilium"
+name = "crd-rs-cilium"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -114,8 +114,8 @@ EOF
 
 echo "==> Formatting..."
 cd "$ROOT_DIR"
-cargo fmt -p cilium
+cargo fmt -p crd-rs-cilium
 
 echo "==> Running cargo check..."
-K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p cilium
+K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p crd-rs-cilium
 echo "==> Cilium crate compiles successfully."

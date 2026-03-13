@@ -1,6 +1,6 @@
-name-template: 'cilium@$RESOLVED_VERSION'
-tag-template: 'cilium@$RESOLVED_VERSION'
-tag-prefix: cilium@
+name-template: 'crd-rs-cilium@$RESOLVED_VERSION'
+tag-template: 'crd-rs-cilium@$RESOLVED_VERSION'
+tag-prefix: crd-rs-cilium@
 template: |
   ## What's Changed
 
