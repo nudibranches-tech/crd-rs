@@ -1,0 +1,39 @@
+name-template: 'cilium@$RESOLVED_VERSION'
+tag-template: 'cilium@$RESOLVED_VERSION'
+tag-prefix: cilium@
+template: |
+  ## What's Changed
+
+  $CHANGES
+include-paths:
+  - "crates/cilium"
+  - "crds/cilium"
+categories:
+  - title: 'Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: 'Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+  - title: 'Maintenance'
+    labels:
+      - 'chore'
+      - 'dependencies'
+      - 'maintenance'
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&'
+no-changes-template: '* No changes'
+version-resolver:
+  major:
+    labels:
+      - 'major'
+  minor:
+    labels:
+      - 'minor'
+  patch:
+    labels:
+      - 'patch'
+  default: patch
