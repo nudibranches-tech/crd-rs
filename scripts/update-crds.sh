@@ -14,6 +14,7 @@ fi
 CNPG_BASE_URL="https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/${CNPG_REF}/config/crd/bases"
 
 echo "$CNPG_REF" > "$ROOT_DIR/crds/cnpg/VERSION"
+sed -i "s#<!-- cnpg-version -->.*#<!-- cnpg-version -->| \`cnpg\` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | \`${CNPG_REF}\` |#" "$ROOT_DIR/README.md"
 
 # CRD file -> module name mapping
 declare -A CRDS=(
@@ -80,6 +81,8 @@ cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 name = "cnpg"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "Kubernetes CRD bindings for CloudNativePG"
 
 [dependencies]
 k8s-openapi = { workspace = true, features = ["schemars"] }

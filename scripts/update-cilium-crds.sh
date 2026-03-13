@@ -14,6 +14,7 @@ fi
 CILIUM_BASE_URL="https://raw.githubusercontent.com/cilium/cilium/${CILIUM_REF}/pkg/k8s/apis/cilium.io/client/crds"
 
 echo "$CILIUM_REF" > "$ROOT_DIR/crds/cilium/VERSION"
+sed -i "s#<!-- cilium-version -->.*#<!-- cilium-version -->| \`cilium\` | [Cilium](https://github.com/cilium/cilium) | \`${CILIUM_REF}\` |#" "$ROOT_DIR/README.md"
 
 # version/filename -> module name
 declare -A CRDS=(
@@ -91,6 +92,8 @@ cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 name = "cilium"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "Kubernetes CRD bindings for Cilium"
 
 [dependencies]
 k8s-openapi = { workspace = true, features = ["schemars"] }
