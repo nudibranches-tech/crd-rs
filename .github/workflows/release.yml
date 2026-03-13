@@ -1,0 +1,34 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "cilium@*"
+      - "cnpg@*"
+
+env:
+  K8S_OPENAPI_ENABLED_VERSION: "1.32"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --workspace
+      - run: cargo clippy --workspace -- -D warnings
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Extract crate name from tag
+        id: crate
+        run: echo "name=${GITHUB_REF_NAME%%@*}" >> "$GITHUB_OUTPUT"
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p "${{ steps.crate.outputs.name }}" --token "$CARGO_REGISTRY_TOKEN"

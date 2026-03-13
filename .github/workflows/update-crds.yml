@@ -1,0 +1,62 @@
+name: Update CRDs
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      cnpg_ref:
+        description: "CNPG git ref (tag/branch), leave empty for latest release"
+        required: false
+      cilium_ref:
+        description: "Cilium git ref (tag/branch), leave empty for latest release"
+        required: false
+
+env:
+  K8S_OPENAPI_ENABLED_VERSION: "1.32"
+  GH_TOKEN: ${{ github.token }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install kopium
+        run: cargo install kopium
+
+      - name: Update CNPG CRDs
+        env:
+          CNPG_REF: ${{ github.event.inputs.cnpg_ref }}
+        run: bash scripts/update-crds.sh
+
+      - name: Update Cilium CRDs
+        env:
+          CILIUM_REF: ${{ github.event.inputs.cilium_ref }}
+        run: bash scripts/update-cilium-crds.sh
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update CRDs"
+          branch: chore/update-crds
+          title: "chore: update CRDs"
+          body: |
+            Automated CRD update from latest upstream releases.
+          delete-branch: true
