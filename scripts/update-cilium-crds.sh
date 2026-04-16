@@ -86,8 +86,9 @@ EOF
 
 echo -e "$LIB_RS" >> "${SRC_DIR}/lib.rs"
 
-# Create Cargo.toml
-cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
+# Create Cargo.toml only if missing, so manual version bumps survive regeneration
+if [ ! -f "${CRATE_DIR}/Cargo.toml" ]; then
+    cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 [package]
 name = "crd-rs-cilium"
 version = "0.1.0"
@@ -111,6 +112,7 @@ kube = { workspace = true, features = ["client", "rustls-tls"] }
 [package.metadata.docs.rs]
 features = ["k8s-openapi/latest"]
 EOF
+fi
 
 echo "==> Formatting..."
 cd "$ROOT_DIR"
