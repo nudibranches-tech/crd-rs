@@ -1,0 +1,22 @@
+[package]
+name = "crd-rs-barman-cloud"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Kubernetes CRD bindings for CloudNativePG Plugin Barman Cloud"
+
+[dependencies]
+k8s-openapi = { workspace = true, features = ["schemars"] }
+kube = { workspace = true, default-features = false, features = [] }
+kube-core = { workspace = true, features = ["schema"] }
+kube-derive.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+k8s-openapi = { workspace = true, features = ["latest", "schemars"] }
+kube = { workspace = true, features = ["client", "rustls-tls"] }
+
+[package.metadata.docs.rs]
+features = ["k8s-openapi/latest"]

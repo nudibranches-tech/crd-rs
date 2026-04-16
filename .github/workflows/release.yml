@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags:
+      - "crd-rs-barman-cloud@*"
       - "crd-rs-cilium@*"
       - "crd-rs-cnpg@*"
 

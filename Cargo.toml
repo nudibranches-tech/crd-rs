@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/barman-cloud",
     "crates/cilium",
     "crates/cnpg",
 ]

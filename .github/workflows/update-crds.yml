@@ -11,6 +11,9 @@ on:
       cilium_ref:
         description: "Cilium git ref (tag/branch), leave empty for latest release"
         required: false
+      barman_cloud_ref:
+        description: "Plugin Barman Cloud git ref (tag/branch), leave empty for latest release"
+        required: false
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
@@ -40,6 +43,11 @@ jobs:
         env:
           CILIUM_REF: ${{ github.event.inputs.cilium_ref }}
         run: bash scripts/update-cilium-crds.sh
+
+      - name: Update Plugin Barman Cloud CRDs
+        env:
+          BARMAN_CLOUD_REF: ${{ github.event.inputs.barman_cloud_ref }}
+        run: bash scripts/update-barman-cloud-crds.sh
 
       - name: Check for changes
         id: changes
