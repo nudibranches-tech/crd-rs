@@ -189,6 +189,16 @@ pub struct ClusterSpec {
         rename = "podSecurityContext"
     )]
     pub pod_security_context: Option<ClusterPodSecurityContext>,
+    /// PodSelectorRefs defines named pod label selectors that can be referenced
+    /// in pg_hba rules using the ${podselector:NAME} syntax in the address field.
+    /// The operator resolves matching pod IPs and the instance manager expands
+    /// pg_hba lines accordingly. Only pods in the Cluster's own namespace are considered.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "podSelectorRefs"
+    )]
+    pub pod_selector_refs: Option<Vec<ClusterPodSelectorRefs>>,
     /// The GID of the `postgres` user inside the image, defaults to `26`
     #[serde(
         default,
@@ -291,6 +301,18 @@ pub struct ClusterSpec {
         rename = "securityContext"
     )]
     pub security_context: Option<ClusterSecurityContext>,
+    /// Name of an existing ServiceAccount in the same namespace to use for the cluster.
+    /// When specified, the operator will not create a new ServiceAccount
+    /// but will use the provided one. This is useful for sharing a single
+    /// ServiceAccount across multiple clusters (e.g., for cloud IAM configurations).
+    /// If not specified, a ServiceAccount will be created with the cluster name.
+    /// Mutually exclusive with ServiceAccountTemplate.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceAccountName"
+    )]
+    pub service_account_name: Option<String>,
     /// Configure the generation of the service account
     #[serde(
         default,
@@ -4926,6 +4948,59 @@ pub struct ClusterPodSecurityContextWindowsOptions {
     pub run_as_user_name: Option<String>,
 }
 
+/// PodSelectorRef defines a named pod label selector for use in pg_hba rules.
+/// Pods matching the selector in the Cluster's namespace will have their IPs
+/// resolved and made available for pg_hba address expansion via the
+/// `${podselector:NAME}` syntax.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterPodSelectorRefs {
+    /// Name is the identifier used to reference this selector in pg_hba rules
+    /// via the ${podselector:NAME} syntax in the address field.
+    pub name: String,
+    /// Selector is a label selector that identifies the pods whose IPs
+    /// should be resolved. Only pods in the Cluster's namespace are considered.
+    pub selector: ClusterPodSelectorRefsSelector,
+}
+
+/// Selector is a label selector that identifies the pods whose IPs
+/// should be resolved. Only pods in the Cluster's namespace are considered.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterPodSelectorRefsSelector {
+    /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "matchExpressions"
+    )]
+    pub match_expressions: Option<Vec<ClusterPodSelectorRefsSelectorMatchExpressions>>,
+    /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+    /// map is equivalent to an element of matchExpressions, whose key field is "key", the
+    /// operator is "In", and the values array contains only "value". The requirements are ANDed.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "matchLabels"
+    )]
+    pub match_labels: Option<BTreeMap<String, String>>,
+}
+
+/// A label selector requirement is a selector that contains values, a key, and an operator that
+/// relates the key and values.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterPodSelectorRefsSelectorMatchExpressions {
+    /// key is the label key that the selector applies to.
+    pub key: String,
+    /// operator represents a key's relationship to a set of values.
+    /// Valid operators are In, NotIn, Exists and DoesNotExist.
+    pub operator: String,
+    /// values is an array of string values. If the operator is In or NotIn,
+    /// the values array must be non-empty. If the operator is Exists or DoesNotExist,
+    /// the values array must be empty. This array is replaced during a strategic
+    /// merge patch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
+}
+
 /// Configuration of the PostgreSQL server
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterPostgresql {
@@ -4949,7 +5024,9 @@ pub struct ClusterPostgresql {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parameters: Option<BTreeMap<String, String>>,
     /// PostgreSQL Host Based Authentication rules (lines to be appended
-    /// to the pg_hba.conf file)
+    /// to the pg_hba.conf file).
+    /// Use the ${podselector:NAME} syntax to reference a pod selector;
+    /// the rule will be expanded for each Pod IP matching that selector.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pg_hba: Option<Vec<String>>,
     /// PostgreSQL User Name Maps rules (lines to be appended
@@ -4985,16 +5062,28 @@ pub struct ClusterPostgresql {
 /// PostgreSQL extensions to the Cluster.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterPostgresqlExtensions {
+    /// A list of directories within the image to be appended to the
+    /// PostgreSQL process's `PATH` environment variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin_path: Option<Vec<String>>,
     /// The list of directories inside the image which should be added to dynamic_library_path.
     /// If not defined, defaults to "/lib".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamic_library_path: Option<Vec<String>>,
+    /// Env is a list of custom environment variables to be set in the
+    /// PostgreSQL process for this extension. It is the responsibility of the
+    /// cluster administrator to ensure the variables are correct for the
+    /// specific extension. Note that changes to these variables require
+    /// a manual cluster restart to take effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<Vec<ClusterPostgresqlExtensionsEnv>>,
     /// The list of directories inside the image which should be added to extension_control_path.
     /// If not defined, defaults to "/share".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extension_control_path: Option<Vec<String>>,
-    /// The image containing the extension, required
-    pub image: ClusterPostgresqlExtensionsImage,
+    /// The image containing the extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ClusterPostgresqlExtensionsImage>,
     /// The list of directories inside the image which should be added to ld_library_path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ld_library_path: Option<Vec<String>>,
@@ -5002,7 +5091,25 @@ pub struct ClusterPostgresqlExtensions {
     pub name: String,
 }
 
-/// The image containing the extension, required
+/// ExtensionEnvVar defines an environment variable for a specific extension
+/// image volume.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterPostgresqlExtensionsEnv {
+    /// Name of the environment variable to be injected into the
+    /// PostgreSQL process.
+    pub name: String,
+    /// Value of the environment variable. CloudNativePG performs a direct
+    /// replacement of this value, with support for placeholder expansion.
+    /// The ${`image_root`} placeholder resolves to the absolute mount path
+    /// of the extension's volume (e.g., `/extensions/my-extension`). This
+    /// is particularly useful for allowing applications or libraries to
+    /// locate specific directories within the mounted image.
+    /// Unrecognized placeholders are rejected. To include a literal ${...}
+    /// in the value, escape it as $${...}.
+    pub value: String,
+}
+
+/// The image containing the extension.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterPostgresqlExtensionsImage {
     /// Policy for pulling OCI objects. Possible values are:
@@ -7690,6 +7797,14 @@ pub struct ClusterStatus {
         rename = "pluginStatus"
     )]
     pub plugin_status: Option<Vec<ClusterStatusPluginStatus>>,
+    /// PodSelectorRefs contains the resolved pod IPs for each named selector
+    /// defined in spec.podSelectorRefs.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "podSelectorRefs"
+    )]
+    pub pod_selector_refs: Option<Vec<ClusterStatusPodSelectorRefs>>,
     /// The integration needed by poolers referencing the cluster
     #[serde(
         default,
@@ -7939,11 +8054,89 @@ pub struct ClusterStatusManagedRolesStatusPasswordStatus {
 /// PGDataImageInfo contains the details of the latest image that has run on the current data directory.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterStatusPgDataImageInfo {
+    /// Extensions contains the container image extensions available for the current Image
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<ClusterStatusPgDataImageInfoExtensions>>,
     /// Image is the image name
     pub image: String,
     /// MajorVersion is the major version of the image
     #[serde(rename = "majorVersion")]
     pub major_version: i64,
+}
+
+/// ExtensionConfiguration is the configuration used to add
+/// PostgreSQL extensions to the Cluster.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusPgDataImageInfoExtensions {
+    /// A list of directories within the image to be appended to the
+    /// PostgreSQL process's `PATH` environment variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin_path: Option<Vec<String>>,
+    /// The list of directories inside the image which should be added to dynamic_library_path.
+    /// If not defined, defaults to "/lib".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_library_path: Option<Vec<String>>,
+    /// Env is a list of custom environment variables to be set in the
+    /// PostgreSQL process for this extension. It is the responsibility of the
+    /// cluster administrator to ensure the variables are correct for the
+    /// specific extension. Note that changes to these variables require
+    /// a manual cluster restart to take effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<Vec<ClusterStatusPgDataImageInfoExtensionsEnv>>,
+    /// The list of directories inside the image which should be added to extension_control_path.
+    /// If not defined, defaults to "/share".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_control_path: Option<Vec<String>>,
+    /// The image containing the extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ClusterStatusPgDataImageInfoExtensionsImage>,
+    /// The list of directories inside the image which should be added to ld_library_path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ld_library_path: Option<Vec<String>>,
+    /// The name of the extension, required
+    pub name: String,
+}
+
+/// ExtensionEnvVar defines an environment variable for a specific extension
+/// image volume.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusPgDataImageInfoExtensionsEnv {
+    /// Name of the environment variable to be injected into the
+    /// PostgreSQL process.
+    pub name: String,
+    /// Value of the environment variable. CloudNativePG performs a direct
+    /// replacement of this value, with support for placeholder expansion.
+    /// The ${`image_root`} placeholder resolves to the absolute mount path
+    /// of the extension's volume (e.g., `/extensions/my-extension`). This
+    /// is particularly useful for allowing applications or libraries to
+    /// locate specific directories within the mounted image.
+    /// Unrecognized placeholders are rejected. To include a literal ${...}
+    /// in the value, escape it as $${...}.
+    pub value: String,
+}
+
+/// The image containing the extension.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusPgDataImageInfoExtensionsImage {
+    /// Policy for pulling OCI objects. Possible values are:
+    /// Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+    /// Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+    /// IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+    /// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "pullPolicy"
+    )]
+    pub pull_policy: Option<String>,
+    /// Required: Image or artifact reference to be used.
+    /// Behaves in the same way as pod.spec.containers[*].image.
+    /// Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+    /// More info: <https://kubernetes.io/docs/concepts/containers/images>
+    /// This field is optional to allow higher level config management to default or override
+    /// container images in workload controllers like Deployments and StatefulSets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }
 
 /// PluginStatus is the status of a loaded plugin
@@ -7993,6 +8186,17 @@ pub struct ClusterStatusPluginStatus {
         rename = "walCapabilities"
     )]
     pub wal_capabilities: Option<Vec<String>>,
+}
+
+/// PodSelectorRefStatus contains the resolved pod IPs for a named selector.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusPodSelectorRefs {
+    /// IPs is the list of pod IPs matching the selector.
+    /// Each IP is a single address (no CIDR notation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ips: Option<Vec<String>>,
+    /// Name corresponds to the name in the spec's PodSelectorRef.
+    pub name: String,
 }
 
 /// The integration needed by poolers referencing the cluster

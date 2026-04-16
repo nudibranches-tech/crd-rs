@@ -22,8 +22,86 @@ pub struct ImageCatalogSpec {
 /// CatalogImage defines the image and major version
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ImageCatalogImages {
+    /// The configuration of the extensions to be added
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<ImageCatalogImagesExtensions>>,
     /// The image reference
     pub image: String,
     /// The PostgreSQL major version of the image. Must be unique within the catalog.
     pub major: i64,
+}
+
+/// ExtensionConfiguration is the configuration used to add
+/// PostgreSQL extensions to the Cluster.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ImageCatalogImagesExtensions {
+    /// A list of directories within the image to be appended to the
+    /// PostgreSQL process's `PATH` environment variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin_path: Option<Vec<String>>,
+    /// The list of directories inside the image which should be added to dynamic_library_path.
+    /// If not defined, defaults to "/lib".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_library_path: Option<Vec<String>>,
+    /// Env is a list of custom environment variables to be set in the
+    /// PostgreSQL process for this extension. It is the responsibility of the
+    /// cluster administrator to ensure the variables are correct for the
+    /// specific extension. Note that changes to these variables require
+    /// a manual cluster restart to take effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<Vec<ImageCatalogImagesExtensionsEnv>>,
+    /// The list of directories inside the image which should be added to extension_control_path.
+    /// If not defined, defaults to "/share".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_control_path: Option<Vec<String>>,
+    /// The image containing the extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageCatalogImagesExtensionsImage>,
+    /// The list of directories inside the image which should be added to ld_library_path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ld_library_path: Option<Vec<String>>,
+    /// The name of the extension, required
+    pub name: String,
+}
+
+/// ExtensionEnvVar defines an environment variable for a specific extension
+/// image volume.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ImageCatalogImagesExtensionsEnv {
+    /// Name of the environment variable to be injected into the
+    /// PostgreSQL process.
+    pub name: String,
+    /// Value of the environment variable. CloudNativePG performs a direct
+    /// replacement of this value, with support for placeholder expansion.
+    /// The ${`image_root`} placeholder resolves to the absolute mount path
+    /// of the extension's volume (e.g., `/extensions/my-extension`). This
+    /// is particularly useful for allowing applications or libraries to
+    /// locate specific directories within the mounted image.
+    /// Unrecognized placeholders are rejected. To include a literal ${...}
+    /// in the value, escape it as $${...}.
+    pub value: String,
+}
+
+/// The image containing the extension.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ImageCatalogImagesExtensionsImage {
+    /// Policy for pulling OCI objects. Possible values are:
+    /// Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+    /// Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+    /// IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+    /// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "pullPolicy"
+    )]
+    pub pull_policy: Option<String>,
+    /// Required: Image or artifact reference to be used.
+    /// Behaves in the same way as pod.spec.containers[*].image.
+    /// Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+    /// More info: <https://kubernetes.io/docs/concepts/containers/images>
+    /// This field is optional to allow higher level config management to default or override
+    /// container images in workload controllers like Deployments and StatefulSets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }

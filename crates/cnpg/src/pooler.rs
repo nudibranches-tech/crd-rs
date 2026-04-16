@@ -37,6 +37,17 @@ pub struct PoolerSpec {
     pub monitoring: Option<PoolerMonitoring>,
     /// The PgBouncer configuration
     pub pgbouncer: PoolerPgbouncer,
+    /// Name of an existing ServiceAccount in the same namespace to use for the pooler.
+    /// When specified, the operator will not create a new ServiceAccount
+    /// but will use the provided one. This is useful for sharing a single
+    /// ServiceAccount across multiple poolers (e.g., for cloud IAM configurations).
+    /// If not specified, a ServiceAccount will be created with the pooler name.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceAccountName"
+    )]
+    pub service_account_name: Option<String>,
     /// Template for the Service to be created
     #[serde(
         default,

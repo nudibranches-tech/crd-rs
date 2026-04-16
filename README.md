@@ -6,7 +6,7 @@ Rust bindings for Kubernetes Custom Resource Definitions (CRDs), auto-generated 
 
 | Crate | Upstream | Source Version |
 |-------|----------|----------------|
-<!-- cnpg-version -->| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.28.1` |
+<!-- cnpg-version -->| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.29.0` |
 <!-- cilium-version -->| `crd-rs-cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
 
 ## Usage
