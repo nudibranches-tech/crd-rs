@@ -14,6 +14,9 @@ on:
       barman_cloud_ref:
         description: "Plugin Barman Cloud git ref (tag/branch), leave empty for latest release"
         required: false
+      kubevirt_ref:
+        description: "KubeVirt git ref (tag/branch), leave empty for latest release"
+        required: false
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
@@ -30,6 +33,10 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
 
       - name: Install kopium
         run: cargo install kopium
@@ -48,6 +55,11 @@ jobs:
         env:
           BARMAN_CLOUD_REF: ${{ github.event.inputs.barman_cloud_ref }}
         run: bash scripts/update-barman-cloud-crds.sh
+
+      - name: Update KubeVirt CRDs
+        env:
+          KUBEVIRT_REF: ${{ github.event.inputs.kubevirt_ref }}
+        run: bash scripts/update-kubevirt-crds.sh
 
       - name: Check for changes
         id: changes

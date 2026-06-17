@@ -9,6 +9,7 @@ Rust bindings for Kubernetes Custom Resource Definitions (CRDs), auto-generated 
 <!-- cnpg-version -->| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.29.0` |
 <!-- cilium-version -->| `crd-rs-cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
 <!-- barman-cloud-version -->| `crd-rs-barman-cloud` | [Plugin Barman Cloud](https://github.com/cloudnative-pg/plugin-barman-cloud) | `v0.12.0` |
+| `crd-rs-kubevirt` | [KubeVirt](https://github.com/kubevirt/kubevirt) | `v1.8.4` |
 
 ## Usage
 
@@ -19,6 +20,7 @@ Add the crate you need as a dependency. You must also depend on `k8s-openapi` an
 crd-rs-cnpg = "0.1"
 crd-rs-cilium = "0.1"
 crd-rs-barman-cloud = "0.1"
+crd-rs-kubevirt = "0.1"
 k8s-openapi = { version = "0.27", features = ["v1_32"] }
 ```
 
@@ -26,6 +28,7 @@ k8s-openapi = { version = "0.27", features = ["v1_32"] }
 use crd_rs_cnpg::cluster::Cluster;
 use crd_rs_cilium::network_policy::CiliumNetworkPolicy;
 use crd_rs_barman_cloud::object_store::ObjectStore;
+use crd_rs_kubevirt::virtual_machine::VirtualMachine;
 ```
 
 ## Updating CRDs
@@ -37,14 +40,18 @@ CRDs are regenerated weekly via CI from the latest upstream releases. To update 
 bash scripts/update-crds.sh
 bash scripts/update-cilium-crds.sh
 bash scripts/update-barman-cloud-crds.sh
+bash scripts/update-kubevirt-crds.sh
 
 # Or pin to a specific version
 CNPG_REF=v1.28.1 bash scripts/update-crds.sh
 CILIUM_REF=v1.19.1 bash scripts/update-cilium-crds.sh
 BARMAN_CLOUD_REF=v0.12.0 bash scripts/update-barman-cloud-crds.sh
+KUBEVIRT_REF=v1.8.4 bash scripts/update-kubevirt-crds.sh
 ```
 
-Requires [kopium](https://github.com/kube-rs/kopium) and the [GitHub CLI](https://cli.github.com/).
+Requires [kopium](https://github.com/kube-rs/kopium), [Go](https://go.dev/) (KubeVirt and
+CDI CRD schemas are rendered from their upstream generators), and the
+[GitHub CLI](https://cli.github.com/).
 
 ## Local development
 

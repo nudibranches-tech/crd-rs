@@ -4,6 +4,7 @@ members = [
     "crates/barman-cloud",
     "crates/cilium",
     "crates/cnpg",
+    "crates/kubevirt",
 ]
 
 [workspace.dependencies]
