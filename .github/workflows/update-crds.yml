@@ -17,6 +17,9 @@ on:
       kubevirt_ref:
         description: "KubeVirt git ref (tag/branch), leave empty for latest release"
         required: false
+      cdi_ref:
+        description: "CDI git ref (tag/branch), leave empty for latest release"
+        required: false
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
@@ -60,6 +63,11 @@ jobs:
         env:
           KUBEVIRT_REF: ${{ github.event.inputs.kubevirt_ref }}
         run: bash scripts/update-kubevirt-crds.sh
+
+      - name: Update CDI CRDs
+        env:
+          CDI_REF: ${{ github.event.inputs.cdi_ref }}
+        run: bash scripts/update-cdi-crds.sh
 
       - name: Check for changes
         id: changes

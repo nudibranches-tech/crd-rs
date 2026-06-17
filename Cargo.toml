@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/barman-cloud",
+    "crates/cdi",
     "crates/cilium",
     "crates/cnpg",
     "crates/kubevirt",
