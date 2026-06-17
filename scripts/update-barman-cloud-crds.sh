@@ -16,7 +16,7 @@ BARMAN_CLOUD_BASE_URL="https://raw.githubusercontent.com/cloudnative-pg/plugin-b
 mkdir -p "$CRDS_DIR" "$SRC_DIR"
 
 echo "$BARMAN_CLOUD_REF" > "$CRDS_DIR/VERSION"
-sed -i "s#<!-- barman-cloud-version -->.*#<!-- barman-cloud-version -->| \`crd-rs-barman-cloud\` | [Plugin Barman Cloud](https://github.com/cloudnative-pg/plugin-barman-cloud) | \`${BARMAN_CLOUD_REF}\` |#" "$ROOT_DIR/README.md"
+sed -i "s#^| \`crd-rs-barman-cloud\` |.*#| \`crd-rs-barman-cloud\` | [Plugin Barman Cloud](https://github.com/cloudnative-pg/plugin-barman-cloud) | \`${BARMAN_CLOUD_REF}\` |#" "$ROOT_DIR/README.md"
 
 # CRD file -> module name mapping
 declare -A CRDS=(

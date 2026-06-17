@@ -6,9 +6,9 @@ Rust bindings for Kubernetes Custom Resource Definitions (CRDs), auto-generated 
 
 | Crate | Upstream | Source Version |
 |-------|----------|----------------|
-<!-- cnpg-version -->| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.29.0` |
-<!-- cilium-version -->| `crd-rs-cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
-<!-- barman-cloud-version -->| `crd-rs-barman-cloud` | [Plugin Barman Cloud](https://github.com/cloudnative-pg/plugin-barman-cloud) | `v0.12.0` |
+| `crd-rs-cnpg` | [CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) | `v1.29.0` |
+| `crd-rs-cilium` | [Cilium](https://github.com/cilium/cilium) | `v1.19.1` |
+| `crd-rs-barman-cloud` | [Plugin Barman Cloud](https://github.com/cloudnative-pg/plugin-barman-cloud) | `v0.12.0` |
 | `crd-rs-kubevirt` | [KubeVirt](https://github.com/kubevirt/kubevirt) | `v1.8.4` |
 | `crd-rs-cdi` | [Containerized Data Importer](https://github.com/kubevirt/containerized-data-importer) | `v1.65.0` |
 

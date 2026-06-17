@@ -14,7 +14,7 @@ fi
 CILIUM_BASE_URL="https://raw.githubusercontent.com/cilium/cilium/${CILIUM_REF}/pkg/k8s/apis/cilium.io/client/crds"
 
 echo "$CILIUM_REF" > "$ROOT_DIR/crds/cilium/VERSION"
-sed -i "s#<!-- cilium-version -->.*#<!-- cilium-version -->| \`crd-rs-cilium\` | [Cilium](https://github.com/cilium/cilium) | \`${CILIUM_REF}\` |#" "$ROOT_DIR/README.md"
+sed -i "s#^| \`crd-rs-cilium\` |.*#| \`crd-rs-cilium\` | [Cilium](https://github.com/cilium/cilium) | \`${CILIUM_REF}\` |#" "$ROOT_DIR/README.md"
 
 # version/filename -> module name
 declare -A CRDS=(
