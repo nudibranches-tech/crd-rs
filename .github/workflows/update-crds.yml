@@ -28,6 +28,7 @@ on:
 # the variable inline for its own `cargo check`, which is where it is needed.
 env:
   GH_TOKEN: ${{ github.token }}
+  KOPIUM_VERSION: "0.24.1"
 
 permissions:
   contents: write
@@ -45,8 +46,14 @@ jobs:
         with:
           go-version: stable
 
+      # Pinned on purpose: kopium is the code generator, so an unpinned bump lands
+      # generator changes inside an automated "update CRDs" PR, mixed with the
+      # upstream schema changes and indistinguishable from them. 0.22 -> 0.24 added
+      # the `root =` attribute and renamed 8 Cilium types that way. --locked keeps
+      # kopium's own dependency resolution reproducible too. Bump deliberately, in
+      # its own PR, so the regenerated diff is reviewable on its own.
       - name: Install kopium
-        run: cargo install kopium
+        run: cargo install kopium --version ${{ env.KOPIUM_VERSION }} --locked
 
       - name: Update CNPG CRDs
         env:
