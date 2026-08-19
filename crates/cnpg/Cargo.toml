@@ -1,6 +1,6 @@
 [package]
 name = "crd-rs-cnpg"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Kubernetes CRD bindings for CloudNativePG"
@@ -15,7 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-k8s-openapi = { workspace = true, features = ["latest", "schemars"] }
+k8s-openapi = { workspace = true, features = ["schemars"] }
 kube = { workspace = true, features = ["client", "rustls-tls"] }
 
 [package.metadata.docs.rs]

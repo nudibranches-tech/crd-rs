@@ -96,7 +96,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-k8s-openapi = { workspace = true, features = ["latest", "schemars"] }
+k8s-openapi = { workspace = true, features = ["schemars"] }
 kube = { workspace = true, features = ["client", "rustls-tls"] }
 
 [package.metadata.docs.rs]
