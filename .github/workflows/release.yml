@@ -9,12 +9,15 @@ on:
       - "crd-rs-cnpg@*"
       - "crd-rs-kubevirt@*"
 
-env:
-  K8S_OPENAPI_ENABLED_VERSION: "1.32"
-
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s: ["1.32", "1.33", "1.34", "1.35", "1.36"]
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: ${{ matrix.k8s }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
