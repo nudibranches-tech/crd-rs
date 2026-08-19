@@ -14,7 +14,7 @@ Rust bindings for Kubernetes Custom Resource Definitions (CRDs), auto-generated 
 
 ## Usage
 
-Add the crate you need as a dependency. You must also depend on `k8s-openapi` and enable a Kubernetes version feature:
+Add the crate you need as a dependency. You must also depend on `k8s-openapi`:
 
 ```toml
 [dependencies]
@@ -23,14 +23,8 @@ crd-rs-cilium = "0.3"
 crd-rs-barman-cloud = "0.2"
 crd-rs-kubevirt = "0.2"
 crd-rs-cdi = "0.2"
-k8s-openapi = { version = "0.28", features = ["v1_32"] }
+k8s-openapi = { version = "0.28", features = ["v1_36"] } # or another version as stated in k8s-openapi
 ```
-
-Pick whichever Kubernetes version feature you target — `k8s-openapi` 0.28 supports
-`v1_32` through `v1_36`. These crates deliberately enable no version feature of
-their own, so the choice is entirely yours. The `v1_32` above is only an example,
-matching the `K8S_OPENAPI_ENABLED_VERSION` that this repo builds and tests itself
-against (`.cargo/config.toml` and the CI workflows) — it is not a requirement.
 
 ```rust
 use crd_rs_cnpg::cluster::Cluster;
