@@ -21,9 +21,14 @@ on:
         description: "CDI git ref (tag/branch), leave empty for latest release"
         required: false
 
+# NB: K8S_OPENAPI_ENABLED_VERSION is deliberately NOT set workflow-wide.
+# `cargo install kopium` builds k8s-openapi with kopium's own version feature,
+# and a second version coming from the environment makes its build script abort
+# with "Both v1_32 and v1_36 features are enabled". Each update-*-crds.sh sets
+# the variable inline for its own `cargo check`, which is where it is needed.
 env:
-  K8S_OPENAPI_ENABLED_VERSION: "1.32"
   GH_TOKEN: ${{ github.token }}
+  KOPIUM_VERSION: "0.24.1"
 
 permissions:
   contents: write
@@ -33,16 +38,16 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
 
       - name: Install kopium
-        run: cargo install kopium
+        run: cargo install kopium --version ${{ env.KOPIUM_VERSION }} --locked
 
       - name: Update CNPG CRDs
         env:
@@ -80,7 +85,7 @@ jobs:
 
       - name: Create pull request
         if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore: update CRDs"
           branch: chore/update-crds

@@ -11,7 +11,7 @@ jobs:
   cnpg:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-cnpg.yml
         env:
@@ -20,7 +20,7 @@ jobs:
   cilium:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-cilium.yml
         env:
@@ -29,7 +29,7 @@ jobs:
   barman-cloud:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-barman-cloud.yml
         env:
@@ -38,7 +38,7 @@ jobs:
   kubevirt:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-kubevirt.yml
         env:
@@ -47,7 +47,7 @@ jobs:
   cdi:
     runs-on: ubuntu-latest
     steps:
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter-cdi.yml
         env:
