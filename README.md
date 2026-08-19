@@ -28,8 +28,9 @@ k8s-openapi = { version = "0.28", features = ["v1_32"] }
 
 Pick whichever Kubernetes version feature you target — `k8s-openapi` 0.28 supports
 `v1_32` through `v1_36`. These crates deliberately enable no version feature of
-their own, so the choice is entirely yours; `v1_32` above is just what this repo's
-own CI pins.
+their own, so the choice is entirely yours. The `v1_32` above is only an example,
+matching the `K8S_OPENAPI_ENABLED_VERSION` that this repo builds and tests itself
+against (`.cargo/config.toml` and the CI workflows) — it is not a requirement.
 
 ```rust
 use crd_rs_cnpg::cluster::Cluster;
