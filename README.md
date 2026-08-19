@@ -18,12 +18,12 @@ Add the crate you need as a dependency. You must also depend on `k8s-openapi` an
 
 ```toml
 [dependencies]
-crd-rs-cnpg = "0.1"
-crd-rs-cilium = "0.1"
-crd-rs-barman-cloud = "0.1"
-crd-rs-kubevirt = "0.1"
-crd-rs-cdi = "0.1"
-k8s-openapi = { version = "0.27", features = ["v1_32"] }
+crd-rs-cnpg = "0.3"
+crd-rs-cilium = "0.3"
+crd-rs-barman-cloud = "0.2"
+crd-rs-kubevirt = "0.2"
+crd-rs-cdi = "0.2"
+k8s-openapi = { version = "0.28", features = ["v1_32"] }
 ```
 
 ```rust
@@ -63,8 +63,8 @@ CDI CRD schemas are rendered from their upstream generators), and the
 The `.cargo/config.toml` sets `K8S_OPENAPI_ENABLED_VERSION=1.32` so standard commands work without extra env vars:
 
 ```sh
-cargo check --workspace
-cargo clippy --workspace -- -D warnings
+cargo check --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 

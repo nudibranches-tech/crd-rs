@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CRDS_DIR="$ROOT_DIR/crds/cnpg"
+CRDS_REL_DIR="crds/cnpg"
 CRATE_DIR="$ROOT_DIR/crates/cnpg"
 SRC_DIR="$CRATE_DIR/src"
 
@@ -47,7 +48,7 @@ for crd_file in "${!CRDS[@]}"; do
     mod_name="${CRDS[$crd_file]}"
     echo "  Generating module ${mod_name}..."
     # Generate without prelude, then prepend the crate-level prelude import
-    kopium -f "${CRDS_DIR}/${crd_file}" --schema=derived -d --hide-prelude > "${SRC_DIR}/${mod_name}.rs.tmp"
+    (cd "$ROOT_DIR" && kopium -f "${CRDS_REL_DIR}/${crd_file}" --schema=derived -d --hide-prelude) > "${SRC_DIR}/${mod_name}.rs.tmp"
     {
         echo "use crate::prelude::*;"
         echo ""
@@ -95,7 +96,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-k8s-openapi = { workspace = true, features = ["latest", "schemars"] }
+k8s-openapi = { workspace = true, features = ["schemars"] }
 kube = { workspace = true, features = ["client", "rustls-tls"] }
 
 [package.metadata.docs.rs]

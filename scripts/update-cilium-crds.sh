@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CRDS_DIR="$ROOT_DIR/crds/cilium"
+CRDS_REL_DIR="crds/cilium"
 CRATE_DIR="$ROOT_DIR/crates/cilium"
 SRC_DIR="$CRATE_DIR/src"
 
@@ -58,7 +59,7 @@ LIB_RS=""
 for crd_path in "${!CRDS[@]}"; do
     mod_name="${CRDS[$crd_path]}"
     echo "  Generating module ${mod_name}..."
-    kopium -f "${CRDS_DIR}/${crd_path}" --schema=derived -d --hide-prelude > "${SRC_DIR}/${mod_name}.rs.tmp"
+    (cd "$ROOT_DIR" && kopium -f "${CRDS_REL_DIR}/${crd_path}" --schema=derived -d --hide-prelude) > "${SRC_DIR}/${mod_name}.rs.tmp"
     {
         echo "use crate::prelude::*;"
         echo ""
@@ -106,7 +107,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-k8s-openapi = { workspace = true, features = ["latest", "schemars"] }
+k8s-openapi = { workspace = true, features = ["schemars"] }
 kube = { workspace = true, features = ["client", "rustls-tls"] }
 
 [package.metadata.docs.rs]
