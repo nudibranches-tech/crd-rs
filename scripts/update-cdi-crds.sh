@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CRDS_DIR="$ROOT_DIR/crds/cdi"
+CRDS_REL_DIR="crds/cdi"
 CRATE_DIR="$ROOT_DIR/crates/cdi"
 SRC_DIR="$CRATE_DIR/src"
 
@@ -78,7 +79,7 @@ for crd_file in "${!CRDS[@]}"; do
     mod_name="${CRDS[$crd_file]}"
     echo "  Generating module ${mod_name}..."
     # Generate without prelude, then prepend the crate-level prelude import
-    kopium -f "${CRDS_DIR}/${crd_file}" --schema=derived -d --hide-prelude > "${SRC_DIR}/${mod_name}.rs.tmp"
+    (cd "$ROOT_DIR" && kopium -f "${CRDS_REL_DIR}/${crd_file}" --schema=derived -d --hide-prelude) > "${SRC_DIR}/${mod_name}.rs.tmp"
     {
         echo "use crate::prelude::*;"
         echo ""
