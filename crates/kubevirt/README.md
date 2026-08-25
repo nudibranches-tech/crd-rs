@@ -16,7 +16,7 @@ Generated from upstream **`v1.8.4`** (see `crds/kubevirt/VERSION`).
 ```toml
 [dependencies]
 crd-rs-kubevirt = "0.1"
-k8s-openapi = { version = "0.27", features = ["v1_32"] }
+k8s-openapi = { version = "0.28", features = ["v1_32"] }
 ```
 
 ```rust
