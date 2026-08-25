@@ -127,6 +127,7 @@ name = "crd-rs-kubevirt"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+repository = "https://github.com/nudibranches-tech/crd-rs"
 description = "Kubernetes CRD bindings for KubeVirt"
 
 [dependencies]
