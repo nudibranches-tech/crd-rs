@@ -49,6 +49,6 @@ jobs:
     steps:
       - uses: release-drafter/release-drafter@v7
         with:
-          config-name: release-drafter-cdi.yml
+          config-name: release-drafter-kubevirt-cdi.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

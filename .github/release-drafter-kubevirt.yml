@@ -6,8 +6,8 @@ template: |
 
   $CHANGES
 include-paths:
-  - "crates/kubevirt"
-  - "crds/kubevirt"
+  - "crates/kubevirt/"
+  - "crds/kubevirt/"
 categories:
   - title: 'Features'
     labels:
