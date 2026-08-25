@@ -157,19 +157,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crd-rs-cdi"
-version = "0.2.0"
-dependencies = [
- "k8s-openapi",
- "kube",
- "kube-core",
- "kube-derive",
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "crd-rs-cilium"
 version = "0.3.0"
 dependencies = [
@@ -197,6 +184,19 @@ dependencies = [
 
 [[package]]
 name = "crd-rs-kubevirt"
+version = "0.2.0"
+dependencies = [
+ "k8s-openapi",
+ "kube",
+ "kube-core",
+ "kube-derive",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "crd-rs-kubevirt-cdi"
 version = "0.2.0"
 dependencies = [
  "k8s-openapi",

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CRDS_DIR="$ROOT_DIR/crds/cdi"
 CRDS_REL_DIR="crds/cdi"
-CRATE_DIR="$ROOT_DIR/crates/cdi"
+CRATE_DIR="$ROOT_DIR/crates/kubevirt-cdi"
 SRC_DIR="$CRATE_DIR/src"
 
 if [ -z "${CDI_REF:-}" ]; then
@@ -25,7 +25,7 @@ declare -A CRDS=(
 mkdir -p "$CRDS_DIR" "$SRC_DIR"
 
 echo "$CDI_REF" > "$CRDS_DIR/VERSION"
-sed -i "s#^| \`crd-rs-cdi\` |.*#| \`crd-rs-cdi\` | [Containerized Data Importer](https://github.com/kubevirt/containerized-data-importer) | \`${CDI_REF}\` |#" "$ROOT_DIR/README.md"
+sed -i "s#^| \`crd-rs-kubevirt-cdi\` |.*#| \`crd-rs-kubevirt-cdi\` | [Containerized Data Importer](https://github.com/kubevirt/containerized-data-importer) | \`${CDI_REF}\` |#" "$ROOT_DIR/README.md"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -111,7 +111,7 @@ echo -e "$LIB_RS" >> "${SRC_DIR}/lib.rs"
 if [ ! -f "${CRATE_DIR}/Cargo.toml" ]; then
     cat > "${CRATE_DIR}/Cargo.toml" <<'EOF'
 [package]
-name = "crd-rs-cdi"
+name = "crd-rs-kubevirt-cdi"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -137,8 +137,8 @@ fi
 
 echo "==> Formatting..."
 cd "$ROOT_DIR"
-cargo fmt -p crd-rs-cdi
+cargo fmt -p crd-rs-kubevirt-cdi
 
 echo "==> Running cargo check..."
-K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p crd-rs-cdi
+K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p crd-rs-kubevirt-cdi
 echo "==> CDI crate compiles successfully."

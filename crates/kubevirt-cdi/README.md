@@ -1,4 +1,4 @@
-# crd-rs-cdi
+# crd-rs-kubevirt-cdi
 
 Rust bindings for the KubeVirt [Containerized Data Importer](https://github.com/kubevirt/containerized-data-importer) (CDI) Custom Resource Definitions, auto-generated with [kopium](https://github.com/kube-rs/kopium).
 
@@ -17,12 +17,12 @@ exposed.
 
 ```toml
 [dependencies]
-crd-rs-cdi = "0.1"
-k8s-openapi = { version = "0.27", features = ["v1_32"] }
+crd-rs-kubevirt-cdi = "0.2"
+k8s-openapi = { version = "0.28", features = ["v1_32"] }
 ```
 
 ```rust
-use crd_rs_cdi::data_volume::DataVolume;
+use crd_rs_kubevirt_cdi::data_volume::DataVolume;
 ```
 
 ## How the schemas are obtained
