@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - "crd-rs-barman-cloud@*"
-      - "crd-rs-cdi@*"
       - "crd-rs-cilium@*"
       - "crd-rs-cnpg@*"
       - "crd-rs-kubevirt@*"
+      - "crd-rs-kubevirt-cdi@*"
 
 jobs:
   check:

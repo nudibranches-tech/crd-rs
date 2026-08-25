@@ -1,13 +1,13 @@
-name-template: 'crd-rs-cdi@$RESOLVED_VERSION'
-tag-template: 'crd-rs-cdi@$RESOLVED_VERSION'
-tag-prefix: crd-rs-cdi@
+name-template: 'crd-rs-kubevirt-cdi@$RESOLVED_VERSION'
+tag-template: 'crd-rs-kubevirt-cdi@$RESOLVED_VERSION'
+tag-prefix: crd-rs-kubevirt-cdi@
 template: |
   ## What's Changed
 
   $CHANGES
 include-paths:
-  - "crates/cdi"
-  - "crds/cdi"
+  - "crates/kubevirt-cdi/"
+  - "crds/cdi/"
 categories:
   - title: 'Features'
     labels:
