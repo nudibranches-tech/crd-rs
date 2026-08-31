@@ -161,6 +161,9 @@ pub enum ScheduledBackupTarget {
 /// More info: <https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status>
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ScheduledBackupStatus {
+    /// Error is the latest admission validation error
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
     /// The latest time the schedule
     #[serde(
         default,
