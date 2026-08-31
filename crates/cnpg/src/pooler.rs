@@ -30,9 +30,6 @@ pub struct PoolerSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instances: Option<i32>,
     /// The configuration of the monitoring infrastructure of this pooler.
-    ///
-    /// Deprecated: This feature will be removed in an upcoming release. If
-    /// you need this functionality, you can create a PodMonitor manually.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monitoring: Option<PoolerMonitoring>,
     /// The PgBouncer configuration
@@ -123,12 +120,12 @@ pub struct PoolerDeploymentStrategyRollingUpdate {
 }
 
 /// The configuration of the monitoring infrastructure of this pooler.
-///
-/// Deprecated: This feature will be removed in an upcoming release. If
-/// you need this functionality, you can create a PodMonitor manually.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerMonitoring {
     /// Enable or disable the `PodMonitor`
+    ///
+    /// Deprecated: This feature will be removed in an upcoming release. If
+    /// you need this functionality, you can create a PodMonitor manually.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -136,6 +133,9 @@ pub struct PoolerMonitoring {
     )]
     pub enable_pod_monitor: Option<bool>,
     /// The list of metric relabelings for the `PodMonitor`. Applied to samples before ingestion.
+    ///
+    /// Deprecated: This feature will be removed in an upcoming release. If
+    /// you need this functionality, you can create a PodMonitor manually.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -143,12 +143,19 @@ pub struct PoolerMonitoring {
     )]
     pub pod_monitor_metric_relabelings: Option<Vec<PoolerMonitoringPodMonitorMetricRelabelings>>,
     /// The list of relabelings for the `PodMonitor`. Applied to samples before scraping.
+    ///
+    /// Deprecated: This feature will be removed in an upcoming release. If
+    /// you need this functionality, you can create a PodMonitor manually.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "podMonitorRelabelings"
     )]
     pub pod_monitor_relabelings: Option<Vec<PoolerMonitoringPodMonitorRelabelings>>,
+    /// Configure TLS communication for the metrics endpoint.
+    /// Changing tls.enabled option will force a rollout of all instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<PoolerMonitoringTls>,
 }
 
 /// RelabelConfig allows dynamic rewriting of the label set for targets, alerts,
@@ -351,6 +358,16 @@ pub enum PoolerMonitoringPodMonitorRelabelingsAction {
     DropEqual,
 }
 
+/// Configure TLS communication for the metrics endpoint.
+/// Changing tls.enabled option will force a rollout of all instances.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PoolerMonitoringTls {
+    /// Enable TLS for the monitoring endpoint.
+    /// Changing this option will force a rollout of all instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
 /// The PgBouncer configuration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerPgbouncer {
@@ -388,6 +405,19 @@ pub struct PoolerPgbouncer {
         rename = "clientTLSSecret"
     )]
     pub client_tls_secret: Option<PoolerPgbouncerClientTlsSecret>,
+    /// Image is the pgbouncer container image to use. When set, it takes
+    /// precedence over ImageCatalogRef and the operator default, but is
+    /// overridden by an explicit image set in the pod template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// ImageCatalogRef points to an entry in an ImageCatalog or ClusterImageCatalog.
+    /// Mutually exclusive with Image.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "imageCatalogRef"
+    )]
+    pub image_catalog_ref: Option<PoolerPgbouncerImageCatalogRef>,
     /// Additional parameters to be passed to PgBouncer - please check
     /// the CNPG documentation for a list of options you can configure
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -449,6 +479,23 @@ pub struct PoolerPgbouncerClientCaSecret {
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerPgbouncerClientTlsSecret {
     /// Name of the referent.
+    pub name: String,
+}
+
+/// ImageCatalogRef points to an entry in an ImageCatalog or ClusterImageCatalog.
+/// Mutually exclusive with Image.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PoolerPgbouncerImageCatalogRef {
+    /// APIGroup is the group for the resource being referenced.
+    /// If APIGroup is not specified, the specified Kind must be in the core API group.
+    /// For any other third-party types, APIGroup is required.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiGroup")]
+    pub api_group: Option<String>,
+    /// Key identifies the entry within the catalog's componentImages list.
+    pub key: String,
+    /// Kind is the type of resource being referenced
+    pub kind: String,
+    /// Name is the name of resource being referenced
     pub name: String,
 }
 
@@ -1009,7 +1056,6 @@ pub struct PoolerTemplateSpec {
     /// When set to false, a new userns is created for the pod. Setting false is useful for
     /// mitigating container breakout vulnerabilities even allowing users to run their
     /// containers as root without actually having root privileges on the host.
-    /// This field is alpha-level and is only honored by servers that enable the UserNamespacesSupport feature.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "hostUsers")]
     pub host_users: Option<bool>,
     /// Specifies the hostname of the Pod
@@ -1223,6 +1269,24 @@ pub struct PoolerTemplateSpec {
         rename = "schedulingGates"
     )]
     pub scheduling_gates: Option<Vec<PoolerTemplateSpecSchedulingGates>>,
+    /// SchedulingGroup provides a reference to the immediate scheduling runtime
+    /// grouping object that this Pod belongs to.
+    /// This field is used by the scheduler to identify the group and apply the
+    /// correct group scheduling policies. The association with a group also
+    /// impacts other lifecycle aspects of a Pod that are relevant in a wider context
+    /// of scheduling like preemption, resource attachment, etc. If not specified,
+    /// the Pod is treated as a single unit in all of these aspects.
+    /// The group object referenced by this field may not exist at the time the
+    /// Pod is created.
+    /// This field is immutable, but a group object with the same name may be
+    /// recreated with different policies. Doing this during pod scheduling
+    /// may result in the placement not conforming to the expected policies.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "schedulingGroup"
+    )]
+    pub scheduling_group: Option<PoolerTemplateSpecSchedulingGroup>,
     /// SecurityContext holds pod-level security attributes and common container settings.
     /// Optional: Defaults to empty.  See type description for default values of each field.
     #[serde(
@@ -1303,19 +1367,6 @@ pub struct PoolerTemplateSpec {
     /// More info: <https://kubernetes.io/docs/concepts/storage/volumes>
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volumes: Option<Vec<PoolerTemplateSpecVolumes>>,
-    /// WorkloadRef provides a reference to the Workload object that this Pod belongs to.
-    /// This field is used by the scheduler to identify the PodGroup and apply the
-    /// correct group scheduling policies. The Workload object referenced
-    /// by this field may not exist at the time the Pod is created.
-    /// This field is immutable, but a Workload object with the same name
-    /// may be recreated with different policies. Doing this during pod scheduling
-    /// may result in the placement not conforming to the expected policies.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "workloadRef"
-    )]
-    pub workload_ref: Option<PoolerTemplateSpecWorkloadRef>,
 }
 
 /// If specified, the pod's scheduling constraints
@@ -3167,7 +3218,6 @@ pub struct PoolerTemplateSpecContainersSecurityContext {
     /// procMount denotes the type of proc mount to use for the containers.
     /// The default value is Default which uses the container runtime defaults for
     /// readonly paths and masked paths.
-    /// This requires the ProcMountType feature flag to be enabled.
     /// Note that this field cannot be set when spec.os.name is windows.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "procMount")]
     pub proc_mount: Option<String>,
@@ -4713,7 +4763,6 @@ pub struct PoolerTemplateSpecEphemeralContainersSecurityContext {
     /// procMount denotes the type of proc mount to use for the containers.
     /// The default value is Default which uses the container runtime defaults for
     /// readonly paths and masked paths.
-    /// This requires the ProcMountType feature flag to be enabled.
     /// Note that this field cannot be set when spec.os.name is windows.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "procMount")]
     pub proc_mount: Option<String>,
@@ -6274,7 +6323,6 @@ pub struct PoolerTemplateSpecInitContainersSecurityContext {
     /// procMount denotes the type of proc mount to use for the containers.
     /// The default value is Default which uses the container runtime defaults for
     /// readonly paths and masked paths.
-    /// This requires the ProcMountType feature flag to be enabled.
     /// Note that this field cannot be set when spec.os.name is windows.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "procMount")]
     pub proc_mount: Option<String>,
@@ -6760,6 +6808,14 @@ pub struct PoolerTemplateSpecReadinessGates {
 ///
 /// It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
 /// Containers that need access to the ResourceClaim reference it with this name.
+///
+/// When the DRAWorkloadResourceClaims feature gate is enabled and this Pod
+/// belongs to a PodGroup, a PodResourceClaim is matched to a
+/// PodGroupResourceClaim if all of their fields are equal (Name,
+/// ResourceClaimName, and ResourceClaimTemplateName). A matched claim references
+/// a single ResourceClaim shared across all Pods in the PodGroup, reserved for
+/// the PodGroup in ResourceClaimStatus.ReservedFor rather than for individual
+/// Pods.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecResourceClaims {
     /// Name uniquely identifies this resource claim inside the pod.
@@ -6784,6 +6840,16 @@ pub struct PoolerTemplateSpecResourceClaims {
     /// will also be deleted. The pod name and resource name, along with a
     /// generated component, will be used to form a unique name for the
     /// ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
+    ///
+    /// When the DRAWorkloadResourceClaims feature gate is enabled and the pod
+    /// belongs to a PodGroup that defines a PodGroupResourceClaim with the same
+    /// Name and ResourceClaimTemplateName, this PodResourceClaim resolves to the
+    /// ResourceClaim generated for the PodGroup. All pods in the group that
+    /// define an equivalent PodResourceClaim matching the
+    /// PodGroupResourceClaim's Name and ResourceClaimTemplateName share the same
+    /// generated ResourceClaim. ResourceClaims generated for a PodGroup are
+    /// owned by the PodGroup and their lifecycles are tied to the PodGroup
+    /// instead of any individual pod.
     ///
     /// This field is immutable and no changes will be made to the
     /// corresponding ResourceClaim by the control plane after creating the
@@ -6851,6 +6917,31 @@ pub struct PoolerTemplateSpecSchedulingGates {
     /// Name of the scheduling gate.
     /// Each scheduling gate must have a unique name field.
     pub name: String,
+}
+
+/// SchedulingGroup provides a reference to the immediate scheduling runtime
+/// grouping object that this Pod belongs to.
+/// This field is used by the scheduler to identify the group and apply the
+/// correct group scheduling policies. The association with a group also
+/// impacts other lifecycle aspects of a Pod that are relevant in a wider context
+/// of scheduling like preemption, resource attachment, etc. If not specified,
+/// the Pod is treated as a single unit in all of these aspects.
+/// The group object referenced by this field may not exist at the time the
+/// Pod is created.
+/// This field is immutable, but a group object with the same name may be
+/// recreated with different policies. Doing this during pod scheduling
+/// may result in the placement not conforming to the expected policies.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PoolerTemplateSpecSchedulingGroup {
+    /// PodGroupName specifies the name of the standalone PodGroup object
+    /// that represents the runtime instance of this group.
+    /// Must be a DNS subdomain.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "podGroupName"
+    )]
+    pub pod_group_name: Option<String>,
 }
 
 /// SecurityContext holds pod-level security attributes and common container settings.
@@ -7475,7 +7566,7 @@ pub struct PoolerTemplateSpecVolumes {
     /// A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
     /// The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
     /// The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-    /// The volume will be mounted read-only (ro) and non-executable files (noexec).
+    /// The volume will be mounted read-only (ro).
     /// Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
     /// The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -7512,8 +7603,7 @@ pub struct PoolerTemplateSpecVolumes {
     pub photon_persistent_disk: Option<PoolerTemplateSpecVolumesPhotonPersistentDisk>,
     /// portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
     /// Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-    /// are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-    /// is on.
+    /// are redirected to the pxd.portworx.com CSI driver.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -8442,7 +8532,7 @@ pub struct PoolerTemplateSpecVolumesHostPath {
 /// A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
 /// The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
 /// The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
-/// The volume will be mounted read-only (ro) and non-executable files (noexec).
+/// The volume will be mounted read-only (ro).
 /// Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
 /// The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -8591,8 +8681,7 @@ pub struct PoolerTemplateSpecVolumesPhotonPersistentDisk {
 
 /// portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
 /// Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
-/// are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
-/// is on.
+/// are redirected to the pxd.portworx.com CSI driver.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecVolumesPortworxVolume {
     /// fSType represents the filesystem type to mount
@@ -9408,39 +9497,6 @@ pub struct PoolerTemplateSpecVolumesVsphereVolume {
     pub volume_path: String,
 }
 
-/// WorkloadRef provides a reference to the Workload object that this Pod belongs to.
-/// This field is used by the scheduler to identify the PodGroup and apply the
-/// correct group scheduling policies. The Workload object referenced
-/// by this field may not exist at the time the Pod is created.
-/// This field is immutable, but a Workload object with the same name
-/// may be recreated with different policies. Doing this during pod scheduling
-/// may result in the placement not conforming to the expected policies.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct PoolerTemplateSpecWorkloadRef {
-    /// Name defines the name of the Workload object this Pod belongs to.
-    /// Workload must be in the same namespace as the Pod.
-    /// If it doesn't match any existing Workload, the Pod will remain unschedulable
-    /// until a Workload object is created and observed by the kube-scheduler.
-    /// It must be a DNS subdomain.
-    pub name: String,
-    /// PodGroup is the name of the PodGroup within the Workload that this Pod
-    /// belongs to. If it doesn't match any existing PodGroup within the Workload,
-    /// the Pod will remain unschedulable until the Workload object is recreated
-    /// and observed by the kube-scheduler. It must be a DNS label.
-    #[serde(rename = "podGroup")]
-    pub pod_group: String,
-    /// PodGroupReplicaKey specifies the replica key of the PodGroup to which this
-    /// Pod belongs. It is used to distinguish pods belonging to different replicas
-    /// of the same pod group. The pod group policy is applied separately to each replica.
-    /// When set, it must be a DNS label.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "podGroupReplicaKey"
-    )]
-    pub pod_group_replica_key: Option<String>,
-}
-
 /// Specification of the desired behavior of the Pooler.
 /// More info: <https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status>
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -9458,12 +9514,48 @@ pub enum PoolerType {
 /// More info: <https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status>
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerStatus {
+    /// Error is the latest admission validation error
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Image is the resolved pgbouncer container image that the operator is
+    /// using for this Pooler, including any override coming from spec.template.
+    /// While Phase is Active or Paused this field reflects what the Deployment
+    /// actually runs; while Phase is Inactive or Failed it may carry the last
+    /// successfully resolved value (or be empty if the Pooler has never reconciled
+    /// successfully).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
     /// The number of pods trying to be scheduled
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instances: Option<i32>,
+    /// Phase summarizes the overall lifecycle state of the Pooler.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<PoolerStatusPhase>,
+    /// PhaseReason is a human-readable explanation of the current Phase.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "phaseReason"
+    )]
+    pub phase_reason: Option<String>,
     /// The resource version of the config object
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<PoolerStatusSecrets>,
+}
+
+/// Most recently observed status of the Pooler. This data may not be up to
+/// date. Populated by the system. Read-only.
+/// More info: <https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status>
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum PoolerStatusPhase {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "inactive")]
+    Inactive,
+    #[serde(rename = "failed")]
+    Failed,
 }
 
 /// The resource version of the config object

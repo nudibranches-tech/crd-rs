@@ -58,9 +58,6 @@ pub struct CiliumNodeSpec {
     /// operator.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ipam: Option<CiliumNodeIpam>,
-    /// NodeIdentity is the Cilium numeric identity allocated for the node, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nodeidentity: Option<i64>,
 }
 
 /// NodeAddress is a node address.
@@ -200,16 +197,6 @@ pub struct CiliumNodeEni {
         rename = "first-interface-index"
     )]
     pub first_interface_index: Option<i64>,
-    /// InstanceID is the AWS InstanceId of the node. The InstanceID is used
-    /// to retrieve AWS metadata for the node.
-    ///
-    /// OBSOLETE: This field is obsolete, please use Spec.InstanceID
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "instance-id"
-    )]
-    pub instance_id: Option<String>,
     /// InstanceType is the AWS EC2 instance type, e.g. "m5.large"
     #[serde(
         default,
@@ -217,33 +204,6 @@ pub struct CiliumNodeEni {
         rename = "instance-type"
     )]
     pub instance_type: Option<String>,
-    /// MaxAboveWatermark is the maximum number of addresses to allocate
-    /// beyond the addresses needed to reach the PreAllocate watermark.
-    /// Going above the watermark can help reduce the number of API calls to
-    /// allocate IPs, e.g. when a new ENI is allocated, as many secondary
-    /// IPs as possible are allocated. Limiting the amount can help reduce
-    /// waste of IPs.
-    ///
-    /// OBSOLETE: This field is obsolete, please use Spec.IPAM.MaxAboveWatermark
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "max-above-watermark"
-    )]
-    pub max_above_watermark: Option<i64>,
-    /// MinAllocate is the minimum number of IPs that must be allocated when
-    /// the node is first bootstrapped. It defines the minimum base socket
-    /// of addresses that must be available. After reaching this watermark,
-    /// the PreAllocate and MaxAboveWatermark logic takes over to continue
-    /// allocating IPs.
-    ///
-    /// OBSOLETE: This field is obsolete, please use Spec.IPAM.MinAllocate
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "min-allocate"
-    )]
-    pub min_allocate: Option<i64>,
     /// NodeSubnetID is the subnet of the primary ENI the instance was brought up
     /// with. It is used as a sensible default subnet to create ENIs in.
     #[serde(
@@ -252,18 +212,6 @@ pub struct CiliumNodeEni {
         rename = "node-subnet-id"
     )]
     pub node_subnet_id: Option<String>,
-    /// PreAllocate defines the number of IP addresses that must be
-    /// available for allocation in the IPAMspec. It defines the buffer of
-    /// addresses available immediately without requiring cilium-operator to
-    /// get involved.
-    ///
-    /// OBSOLETE: This field is obsolete, please use Spec.IPAM.PreAllocate
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "pre-allocate"
-    )]
-    pub pre_allocate: Option<i64>,
     /// SecurityGroupTags is the list of tags to use when evaliating what
     /// AWS security groups to use for the ENI.
     #[serde(
@@ -386,7 +334,7 @@ pub struct CiliumNodeIpam {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pools: Option<CiliumNodeIpamPools>,
     /// PreAllocate defines the number of IP addresses that must be
-    /// available for allocation in the IPAMspec. It defines the buffer of
+    /// available for allocation in the IPAMSpec. It defines the buffer of
     /// addresses available immediately without requiring cilium-operator to
     /// get involved.
     #[serde(
@@ -465,6 +413,20 @@ pub struct CiliumNodeIpamPools {
 /// node. It contains the assigned PodCIDRs allocated from this pool
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumNodeIpamPoolsAllocated {
+    /// AllowFirstIP allows the first IP of each allocated CIDR to be used.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "allowFirstIP"
+    )]
+    pub allow_first_ip: Option<bool>,
+    /// AllowLastIP allows the last IP of each allocated CIDR to be used.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "allowLastIP"
+    )]
+    pub allow_last_ip: Option<bool>,
     /// CIDRs contains a list of pod CIDRs currently allocated from this pool
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cidrs: Option<Vec<String>>,
@@ -663,16 +625,16 @@ pub struct CiliumNodeStatusAzure {
 /// AzureInterface represents an Azure Interface
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumNodeStatusAzureInterfaces {
-    /// GatewayIP is the interface's subnet's default route
-    ///
-    /// OBSOLETE: This field is obsolete, please use Gateway field instead.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "GatewayIP")]
-    pub gateway_ip: Option<String>,
-    /// Addresses is the list of all IPs associated with the interface,
-    /// including all secondary addresses
+    /// Addresses is the list of secondary IPs associated with the interface.
+    /// The primary IP is tracked separately in the IP field, but is also
+    /// included here when the operator is configured to expose it for
+    /// allocation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub addresses: Option<Vec<CiliumNodeStatusAzureInterfacesAddresses>>,
     /// CIDR is the range that the interface belongs to.
+    ///
+    /// Deprecated: use Subnet.CIDR. Retained for one release so agent/operator
+    /// rolling upgrades work in either order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cidr: Option<String>,
     /// Gateway is the interface's subnet's default route
@@ -681,6 +643,9 @@ pub struct CiliumNodeStatusAzureInterfaces {
     /// ID is the identifier
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// IP is the primary IP of the interface
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
     /// MAC is the mac address
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mac: Option<String>,
@@ -697,6 +662,9 @@ pub struct CiliumNodeStatusAzureInterfaces {
     /// State is the provisioning state
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// Subnet is the subnet the interface is attached to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet: Option<CiliumNodeStatusAzureInterfacesSubnet>,
 }
 
 /// AzureAddress is an IP address assigned to an AzureInterface
@@ -708,9 +676,23 @@ pub struct CiliumNodeStatusAzureInterfacesAddresses {
     /// State is the provisioning state of the address
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
-    /// Subnet is the subnet the address belongs to
+    /// Subnet is the subnet the address belongs to.
+    ///
+    /// Deprecated: use AzureInterface.Subnet.ID. Populated as a mirror for one
+    /// release so external consumers of CiliumNode.Status.Azure can migrate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subnet: Option<String>,
+}
+
+/// Subnet is the subnet the interface is attached to.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumNodeStatusAzureInterfacesSubnet {
+    /// CIDR is the CIDR range associated with the subnet
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cidr: Option<String>,
+    /// ID is the resource ID of the subnet
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// ENI is the AWS ENI specific status of the node.
@@ -743,6 +725,13 @@ pub struct CiliumNodeStatusEniEnis {
     /// IP is the primary IP of the ENI
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip: Option<String>,
+    /// IPv6Prefixes is the list of all IPv6 /80 delegated prefixes associated with the ENI
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ipv6-prefixes"
+    )]
+    pub ipv6_prefixes: Option<Vec<String>>,
     /// MAC is the mac address of the ENI
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mac: Option<String>,
@@ -750,7 +739,7 @@ pub struct CiliumNodeStatusEniEnis {
     /// FirstInterfaceIndex
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<i64>,
-    /// Prefixes is the list of all /28 prefixes associated with the ENI
+    /// Prefixes is the list of all IPv4 /28 delegated prefixes associated with the ENI
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefixes: Option<Vec<String>>,
     /// PublicIP is the public IP associated with the ENI

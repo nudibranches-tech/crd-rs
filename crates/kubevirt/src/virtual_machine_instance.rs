@@ -108,7 +108,8 @@ pub struct VirtualMachineInstanceSpec {
     /// This is an alpha field and requires enabling the
     /// DynamicResourceAllocation feature gate in kubernetes
     ///  <https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/>
-    /// This field should only be configured if one of the feature-gates GPUsWithDRA or HostDevicesWithDRA is enabled.
+    /// This field should only be configured if one of the feature-gates GPUsWithDRA, HostDevicesWithDRA,
+    /// or NetworkDevicesWithDRA is enabled.
     /// This feature is in alpha.
     #[serde(
         default,
@@ -124,6 +125,16 @@ pub struct VirtualMachineInstanceSpec {
         rename = "schedulerName"
     )]
     pub scheduler_name: Option<String>,
+    /// ServiceAccountName is the name of the ServiceAccount to use to run the
+    /// virt-launcher pod. This sets pod.spec.serviceAccountName but does NOT
+    /// automatically expose the service account token to the VM guest.
+    /// To expose the token to the VM, use a serviceAccount volume.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceAccountName"
+    )]
+    pub service_account_name: Option<String>,
     /// StartStrategy can be set to "Paused" if Virtual Machine should be started in paused state.
     #[serde(
         default,
@@ -1702,8 +1713,10 @@ pub struct VirtualMachineInstanceDomainDevicesFilesystemsVirtiofs {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceDomainDevicesGpus {
-    /// ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
-    /// device is allocated
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
     pub claim_name: Option<String>,
     /// DeviceName is the name of the device provisioned by device-plugins
@@ -1715,8 +1728,9 @@ pub struct VirtualMachineInstanceDomainDevicesGpus {
     pub device_name: Option<String>,
     /// Name of the GPU device as exposed by a device plugin
     pub name: String,
-    /// RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
-    /// device is requested
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1764,8 +1778,10 @@ pub struct VirtualMachineInstanceDomainDevicesGpusVirtualGpuOptionsDisplayRamFb 
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceDomainDevicesHostDevices {
-    /// ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
-    /// device is allocated
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
     pub claim_name: Option<String>,
     /// DeviceName is the name of the device provisioned by device-plugins
@@ -1776,8 +1792,9 @@ pub struct VirtualMachineInstanceDomainDevicesHostDevices {
     )]
     pub device_name: Option<String>,
     pub name: String,
-    /// RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
-    /// device is requested
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1873,7 +1890,17 @@ pub struct VirtualMachineInstanceDomainDevicesInterfaces {
         rename = "pciAddress"
     )]
     pub pci_address: Option<String>,
+    /// List of port ranges to be forwarded to the virtual machine.
+    /// Mutually exclusive with ports. Only supported on masquerade interfaces.
+    /// This feature is in Alpha.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "portRanges"
+    )]
+    pub port_ranges: Option<Vec<VirtualMachineInstanceDomainDevicesInterfacesPortRanges>>,
     /// List of ports to be forwarded to the virtual machine.
+    /// Mutually exclusive with portRanges.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<VirtualMachineInstanceDomainDevicesInterfacesPorts>>,
     /// DeprecatedSlirp is an alias to the deprecated Slirp interface
@@ -1974,6 +2001,21 @@ pub struct VirtualMachineInstanceDomainDevicesInterfacesPasst {}
 /// InterfacePasstBinding connects to a given network using passt usermode networking.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceDomainDevicesInterfacesPasstBinding {}
+
+/// PortRange represents a range of ports to be forwarded to the virtual machine.
+/// All fields are mandatory.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceDomainDevicesInterfacesPortRanges {
+    /// Last port of the range to expose for the virtual machine.
+    /// This must be a valid port number, 0 < x < 65536.
+    /// Must be greater than or equal to start.
+    pub end: i32,
+    /// Required. Must be UDP or TCP.
+    pub protocol: String,
+    /// First port of the range to expose for the virtual machine.
+    /// This must be a valid port number, 0 < x < 65536.
+    pub start: i32,
+}
 
 /// Port represents a port to expose from the virtual machine.
 /// Default protocol TCP.
@@ -2904,6 +2946,17 @@ pub struct VirtualMachineInstanceNetworks {
     /// Represents the stock pod network interface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pod: Option<VirtualMachineInstanceNetworksPod>,
+    /// ResourceClaim represents a network resource requested
+    /// via a VMI spec.resourceClaims[] entry, backed by either a
+    /// Kubernetes ResourceClaim or ResourceClaimTemplate.
+    /// This field should only be configured if the NetworkDevicesWithDRA feature-gate is enabled.
+    /// This feature is in alpha.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "resourceClaim"
+    )]
+    pub resource_claim: Option<VirtualMachineInstanceNetworksResourceClaim>,
 }
 
 /// Represents the multus cni network.
@@ -2939,6 +2992,30 @@ pub struct VirtualMachineInstanceNetworksPod {
         rename = "vmNetworkCIDR"
     )]
     pub vm_network_cidr: Option<String>,
+}
+
+/// ResourceClaim represents a network resource requested
+/// via a VMI spec.resourceClaims[] entry, backed by either a
+/// Kubernetes ResourceClaim or ResourceClaimTemplate.
+/// This field should only be configured if the NetworkDevicesWithDRA feature-gate is enabled.
+/// This feature is in alpha.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceNetworksResourceClaim {
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
+    pub claim_name: Option<String>,
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "requestName"
+    )]
+    pub request_name: Option<String>,
 }
 
 /// Periodic probe of VirtualMachineInstance service readiness.
@@ -3093,19 +3170,13 @@ pub struct VirtualMachineInstanceReadinessProbeTcpSocket {
     pub port: IntOrString,
 }
 
-/// PodResourceClaim references exactly one ResourceClaim, either directly
-/// or by naming a ResourceClaimTemplate which is then turned into a ResourceClaim
-/// for the pod.
-///
-/// It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
-/// Containers that need access to the ResourceClaim reference it with this name.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceResourceClaims {
-    /// Name uniquely identifies this resource claim inside the pod.
-    /// This must be a DNS_LABEL.
+    /// Name uniquely identifies this resource claim inside the VMI.
+    /// This field is required and must be a DNS_LABEL.
     pub name: String,
     /// ResourceClaimName is the name of a ResourceClaim object in the same
-    /// namespace as this pod.
+    /// namespace as this VMI.
     ///
     /// Exactly one of ResourceClaimName and ResourceClaimTemplateName must
     /// be set.
@@ -3116,17 +3187,14 @@ pub struct VirtualMachineInstanceResourceClaims {
     )]
     pub resource_claim_name: Option<String>,
     /// ResourceClaimTemplateName is the name of a ResourceClaimTemplate
-    /// object in the same namespace as this pod.
+    /// object in the same namespace as this VMI.
     ///
-    /// The template will be used to create a new ResourceClaim, which will
-    /// be bound to this pod. When this pod is deleted, the ResourceClaim
-    /// will also be deleted. The pod name and resource name, along with a
-    /// generated component, will be used to form a unique name for the
-    /// ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
-    ///
-    /// This field is immutable and no changes will be made to the
-    /// corresponding ResourceClaim by the control plane after creating the
-    /// ResourceClaim.
+    /// The template name is passed through to the generated virt-launcher Pod
+    /// spec. From the Pod spec, the template is used to create a new
+    /// ResourceClaim, which is bound to the virt-launcher Pod. When the
+    /// virt-launcher Pod is deleted, the ResourceClaim is also deleted. The
+    /// generated ResourceClaim name is unique and is recorded in
+    /// pod.status.resourceClaimStatuses.
     ///
     /// Exactly one of ResourceClaimName and ResourceClaimTemplateName must
     /// be set.
@@ -4146,6 +4214,13 @@ pub struct VirtualMachineInstanceStatusChangedBlockTrackingBackupStatus {
     /// Failed indicates that the backup failed
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<bool>,
+    /// QuiesceStatus indicates whether filesystem freeze succeeded, failed, or was skipped.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "quiesceStatus"
+    )]
+    pub quiesce_status: Option<String>,
     /// StartTimestamp is the timestamp when the backup started
     #[serde(
         default,
@@ -4714,6 +4789,11 @@ pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfiguration {
         rename = "disableTLS"
     )]
     pub disable_tls: Option<bool>,
+    /// ExperimentalMigrationOptions is an alpha API. It is intended for experimental
+    /// purposes only and will be removed in the future.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental:
+        Option<VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimental>,
     /// By default, the SELinux level of target virt-launcher pods is forced to the level of the source virt-launcher.
     /// When set to true, MatchSELinuxLevelOnMigration lets the CRI auto-assign a random level to the target.
     /// That will ensure the target virt-launcher doesn't share categories with another pod on the node.
@@ -4724,6 +4804,14 @@ pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfiguration {
         rename = "matchSELinuxLevelOnMigration"
     )]
     pub match_se_linux_level_on_migration: Option<bool>,
+    /// MaxDowntimeMs specifies the maximum tolerable downtime (in milliseconds) during switchover.
+    /// Defaults to 900
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "maxDowntimeMs"
+    )]
+    pub max_downtime_ms: Option<i64>,
     /// Network is the name of the CNI network to use for live migrations. By default, migrations go
     /// through the pod network.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4778,6 +4866,116 @@ pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfiguration {
         rename = "utilityVolumesTimeout"
     )]
     pub utility_volumes_timeout: Option<i64>,
+}
+
+/// ExperimentalMigrationOptions is an alpha API. It is intended for experimental
+/// purposes only and will be removed in the future.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimental {
+    /// Compression selects the algorithm for compressing the live migration
+    /// data stream. When omitted (nil) or set to "none", compression is
+    /// disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<
+        VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalCompression,
+    >,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stallDetector"
+    )]
+    pub stall_detector: Option<
+        VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalStallDetector,
+    >,
+}
+
+/// ExperimentalMigrationOptions is an alpha API. It is intended for experimental
+/// purposes only and will be removed in the future.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalCompression {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "zstd")]
+    Zstd,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalStallDetector
+{
+    /// CompletionTimeoutFactor multiplies the computed migration completion timeout to determine
+    /// the total time budget for deciding whether a forced switchover can still finish in time,
+    /// and to extend the abort deadline after initiating a completion-timeout-driven switchover.
+    /// Defaults to "2".
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "completionTimeoutFactor"
+    )]
+    pub completion_timeout_factor: Option<String>,
+    /// EwmaAlpha is the smoothing factor for the exponentially weighted moving average of
+    /// observed migration bandwidth. Must be in the range (0, 1]; zero is invalid because
+    /// the estimate would never incorporate new samples. Higher values weight recent samples
+    /// more heavily.
+    /// Defaults to "0.4".
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "ewmaAlpha")]
+    pub ewma_alpha: Option<String>,
+    /// PatienceWindowDecayFactor is the factor by which the relaxation patience window is
+    /// multiplied after each best-remaining-bytes relaxation step.
+    /// Defaults to "0.5".
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "patienceWindowDecayFactor"
+    )]
+    pub patience_window_decay_factor: Option<String>,
+    /// PrecopyPossibleFactor is the maximum factor by which estimated downtime may exceed
+    /// MaxDowntime while still attempting a soft stop-and-copy instead of aborting the migration.
+    /// Defaults to "1.5".
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "precopyPossibleFactor"
+    )]
+    pub precopy_possible_factor: Option<String>,
+    /// SearchLocalMinima controls whether convergence actions are delayed until remaining bytes
+    /// reach a local minimum near the best observed value. When false, actions may trigger
+    /// as soon as a stall is detected.
+    /// Defaults to true.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "searchLocalMinima"
+    )]
+    pub search_local_minima: Option<bool>,
+    /// StallMargin is the fractional tolerance, expressed as a percentage, used when
+    /// comparing remaining migration bytes against the best observed value to detect stalls
+    /// and local minima. A stall is reported when remaining bytes stay above
+    /// (1 - StallMargin/100) of the outside-window minimum.
+    /// Defaults to 4.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stallMargin"
+    )]
+    pub stall_margin: Option<i64>,
+    /// StallProgressTimeout is the duration in seconds of the sliding window used to track
+    /// minimum remaining-bytes and detect when migration progress has stalled.
+    /// Defaults to 40.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stallProgressTimeout"
+    )]
+    pub stall_progress_timeout: Option<i64>,
+    /// SwitchoverTimeout is the duration in seconds allowed for a stop-and-copy or post-copy
+    /// switchover to complete after being triggered before the migration is aborted.
+    /// Defaults to 60.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "switchoverTimeout"
+    )]
+    pub switchover_timeout: Option<i64>,
 }
 
 /// SourceState contains migration state managed by the source virt handler
