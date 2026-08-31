@@ -14,6 +14,7 @@ pub mod backup;
 pub mod cluster;
 pub mod cluster_image_catalog;
 pub mod database;
+pub mod database_role;
 pub mod failover_quorum;
 pub mod image_catalog;
 pub mod pooler;

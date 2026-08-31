@@ -216,6 +216,16 @@ pub struct ClusterSpec {
     /// Configuration of the PostgreSQL server
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postgresql: Option<ClusterPostgresql>,
+    /// Configuration of the Kubernetes `Lease` used to coordinate safe primary
+    /// election within the cluster. When omitted, the operator applies built-in
+    /// defaults; tune these values only if you understand the consequences for
+    /// failover timing.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "primaryLease"
+    )]
+    pub primary_lease: Option<ClusterPrimaryLease>,
     /// Method to follow to upgrade the primary server during a rolling
     /// update procedure, after all replicas have been successfully updated:
     /// it can be with a switchover (`switchover`) or in-place (`restart` - default).
@@ -1452,7 +1462,7 @@ pub struct ClusterBackupBarmanObjectStoreData {
     pub additional_command_args: Option<Vec<String>>,
     /// Compress a backup file (a tar file per tablespace) while streaming it
     /// to the object store. Available options are empty string (no
-    /// compression, default), `gzip`, `bzip2`, and `snappy`.
+    /// compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<ClusterBackupBarmanObjectStoreDataCompression>,
     /// Whenever to force the encryption of files (if the bucket is
@@ -1488,6 +1498,8 @@ pub enum ClusterBackupBarmanObjectStoreDataCompression {
     Bzip2,
     #[serde(rename = "gzip")]
     Gzip,
+    #[serde(rename = "lz4")]
+    Lz4,
     #[serde(rename = "snappy")]
     Snappy,
 }
@@ -3321,7 +3333,7 @@ pub struct ClusterExternalClustersBarmanObjectStoreData {
     pub additional_command_args: Option<Vec<String>>,
     /// Compress a backup file (a tar file per tablespace) while streaming it
     /// to the object store. Available options are empty string (no
-    /// compression, default), `gzip`, `bzip2`, and `snappy`.
+    /// compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<ClusterExternalClustersBarmanObjectStoreDataCompression>,
     /// Whenever to force the encryption of files (if the bucket is
@@ -3357,6 +3369,8 @@ pub enum ClusterExternalClustersBarmanObjectStoreDataCompression {
     Bzip2,
     #[serde(rename = "gzip")]
     Gzip,
+    #[serde(rename = "lz4")]
+    Lz4,
     #[serde(rename = "snappy")]
     Snappy,
 }
@@ -3790,10 +3804,12 @@ pub struct ClusterManagedRoles {
     pub ensure: Option<ClusterManagedRolesEnsure>,
     /// List of one or more existing roles to which this role will be
     /// immediately added as a new member. Default empty.
+    /// Changes to the list are applied to an existing role through
+    /// `GRANT` and `REVOKE` statements, not only at role creation.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "inRoles")]
     pub in_roles: Option<Vec<String>>,
     /// Whether a role "inherits" the privileges of roles it is a member of.
-    /// Defaults is `true`.
+    /// Default is `true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherit: Option<bool>,
     /// Whether the role is allowed to log in. A role having the `login`
@@ -3804,8 +3820,10 @@ pub struct ClusterManagedRoles {
     pub login: Option<bool>,
     /// Name of the role
     pub name: String,
-    /// Secret containing the password of the role (if present)
-    /// If null, the password will be ignored unless DisablePassword is set
+    /// Secret containing the password of the role (if present).
+    /// If null, the password will be ignored unless DisablePassword is set.
+    /// When set, the secret must follow the `kubernetes.io/basic-auth` format
+    /// and contain both a `username` and a `password` field.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -3851,8 +3869,10 @@ pub enum ClusterManagedRolesEnsure {
     Absent,
 }
 
-/// Secret containing the password of the role (if present)
-/// If null, the password will be ignored unless DisablePassword is set
+/// Secret containing the password of the role (if present).
+/// If null, the password will be ignored unless DisablePassword is set.
+/// When set, the secret must follow the `kubernetes.io/basic-auth` format
+/// and contain both a `username` and a `password` field.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterManagedRolesPasswordSecret {
     /// Name of the referent.
@@ -5087,7 +5107,9 @@ pub struct ClusterPostgresqlExtensions {
     /// The list of directories inside the image which should be added to ld_library_path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ld_library_path: Option<Vec<String>>,
-    /// The name of the extension, required
+    /// The name of the extension, required. The limit of 59 characters
+    /// leaves room for the prefix the operator adds when deriving the
+    /// extension's Kubernetes Volume name (capped at 63 characters).
     pub name: String,
 }
 
@@ -5326,6 +5348,53 @@ pub enum ClusterPostgresqlSynchronousMethod {
     Any,
     #[serde(rename = "first")]
     First,
+}
+
+/// Configuration of the Kubernetes `Lease` used to coordinate safe primary
+/// election within the cluster. When omitted, the operator applies built-in
+/// defaults; tune these values only if you understand the consequences for
+/// failover timing.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterPrimaryLease {
+    /// How long, in seconds, the primary lease is considered valid before it
+    /// expires and another instance may acquire it. It must be greater than
+    /// `renewDeadlineSeconds`.
+    /// Defaults to 15.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "leaseDurationSeconds"
+    )]
+    pub lease_duration_seconds: Option<i32>,
+    /// The TTL, in seconds, written when the primary explicitly releases the
+    /// lease on a clean shutdown, allowing a replica to promote without waiting
+    /// for the full lease duration to expire.
+    /// Defaults to 1.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "releasedLeaseDurationSeconds"
+    )]
+    pub released_lease_duration_seconds: Option<i32>,
+    /// How long, in seconds, the current primary keeps retrying to renew the
+    /// lease before giving up and stopping. It must be smaller than
+    /// `leaseDurationSeconds`.
+    /// Defaults to 10.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "renewDeadlineSeconds"
+    )]
+    pub renew_deadline_seconds: Option<i32>,
+    /// How frequently, in seconds, a non-holder instance retries acquiring or
+    /// renewing the lease.
+    /// Defaults to 2.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "retryPeriodSeconds"
+    )]
+    pub retry_period_seconds: Option<i32>,
 }
 
 /// Specification of the desired behavior of the cluster.
@@ -6357,7 +6426,6 @@ pub struct ClusterSecurityContext {
     /// procMount denotes the type of proc mount to use for the containers.
     /// The default value is Default which uses the container runtime defaults for
     /// readonly paths and masked paths.
-    /// This requires the ProcMountType feature flag to be enabled.
     /// Note that this field cannot be set when spec.os.name is windows.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "procMount")]
     pub proc_mount: Option<String>,
@@ -7753,6 +7821,8 @@ pub struct ClusterStatus {
     )]
     pub last_successful_backup_by_method: Option<BTreeMap<String, String>>,
     /// ID of the latest generated node (used to avoid node name clashing)
+    ///
+    /// Deprecated: this field is not set anymore
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -7773,6 +7843,15 @@ pub struct ClusterStatus {
         rename = "onlineUpdateEnabled"
     )]
     pub online_update_enabled: Option<bool>,
+    /// OperatorCertificateFingerprint is the SHA256 fingerprint of the operator's
+    /// in-memory client certificate public key. The instance manager pins this
+    /// fingerprint to authenticate requests from the operator.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "operatorCertificateFingerprint"
+    )]
+    pub operator_certificate_fingerprint: Option<String>,
     /// PGDataImageInfo contains the details of the latest image that has run on the current data directory.
     #[serde(
         default,
@@ -7846,6 +7925,12 @@ pub struct ClusterStatus {
         rename = "secretsResourceVersion"
     )]
     pub secrets_resource_version: Option<ClusterStatusSecretsResourceVersion>,
+    /// Selector is the serialized form of the label selector that identifies
+    /// the pods managed by this cluster. Populated by the operator and exposed
+    /// through the scale sub-resource so an autoscaler (such as HPA or VPA)
+    /// can discover the managed instance pods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
     /// SwitchReplicaClusterStatus is the status of the switch to replica cluster
     #[serde(
         default,
@@ -7863,6 +7948,15 @@ pub struct ClusterStatus {
         rename = "tablespacesStatus"
     )]
     pub tablespaces_status: Option<Vec<ClusterStatusTablespacesStatus>>,
+    /// TargetPGDataImageInfo contains the details of the target image for an
+    /// in-progress major upgrade. It is set before the upgrade Job is created,
+    /// and cleared on successful completion or when the upgrade is rolled back.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "targetPgDataImageInfo"
+    )]
+    pub target_pg_data_image_info: Option<ClusterStatusTargetPgDataImageInfo>,
     /// Target primary instance, this is different from the previous one
     /// during a switchover or a failover
     #[serde(
@@ -8015,8 +8109,10 @@ pub struct ClusterStatusManagedRolesStatus {
     /// ByStatus gives the list of roles in each state
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "byStatus")]
     pub by_status: Option<BTreeMap<String, Vec<String>>>,
-    /// CannotReconcile lists roles that cannot be reconciled in PostgreSQL,
-    /// with an explanation of the cause
+    /// CannotReconcile lists roles that cannot be reconciled, with an
+    /// explanation of the cause. Failures may originate in PostgreSQL
+    /// (e.g. dropping a role that owns objects) or in Kubernetes (e.g.
+    /// the referenced password Secret cannot be fetched).
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -8093,7 +8189,9 @@ pub struct ClusterStatusPgDataImageInfoExtensions {
     /// The list of directories inside the image which should be added to ld_library_path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ld_library_path: Option<Vec<String>>,
-    /// The name of the extension, required
+    /// The name of the extension, required. The limit of 59 characters
+    /// leaves room for the prefix the operator adds when deriving the
+    /// extension's Kubernetes Volume name (capped at 63 characters).
     pub name: String,
 }
 
@@ -8325,6 +8423,98 @@ pub struct ClusterStatusTablespacesStatus {
     pub owner: Option<String>,
     /// State is the latest reconciliation state
     pub state: String,
+}
+
+/// TargetPGDataImageInfo contains the details of the target image for an
+/// in-progress major upgrade. It is set before the upgrade Job is created,
+/// and cleared on successful completion or when the upgrade is rolled back.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusTargetPgDataImageInfo {
+    /// Extensions contains the container image extensions available for the current Image
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<ClusterStatusTargetPgDataImageInfoExtensions>>,
+    /// Image is the image name
+    pub image: String,
+    /// MajorVersion is the major version of the image
+    #[serde(rename = "majorVersion")]
+    pub major_version: i64,
+}
+
+/// ExtensionConfiguration is the configuration used to add
+/// PostgreSQL extensions to the Cluster.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusTargetPgDataImageInfoExtensions {
+    /// A list of directories within the image to be appended to the
+    /// PostgreSQL process's `PATH` environment variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin_path: Option<Vec<String>>,
+    /// The list of directories inside the image which should be added to dynamic_library_path.
+    /// If not defined, defaults to "/lib".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_library_path: Option<Vec<String>>,
+    /// Env is a list of custom environment variables to be set in the
+    /// PostgreSQL process for this extension. It is the responsibility of the
+    /// cluster administrator to ensure the variables are correct for the
+    /// specific extension. Note that changes to these variables require
+    /// a manual cluster restart to take effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<Vec<ClusterStatusTargetPgDataImageInfoExtensionsEnv>>,
+    /// The list of directories inside the image which should be added to extension_control_path.
+    /// If not defined, defaults to "/share".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_control_path: Option<Vec<String>>,
+    /// The image containing the extension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ClusterStatusTargetPgDataImageInfoExtensionsImage>,
+    /// The list of directories inside the image which should be added to ld_library_path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ld_library_path: Option<Vec<String>>,
+    /// The name of the extension, required. The limit of 59 characters
+    /// leaves room for the prefix the operator adds when deriving the
+    /// extension's Kubernetes Volume name (capped at 63 characters).
+    pub name: String,
+}
+
+/// ExtensionEnvVar defines an environment variable for a specific extension
+/// image volume.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusTargetPgDataImageInfoExtensionsEnv {
+    /// Name of the environment variable to be injected into the
+    /// PostgreSQL process.
+    pub name: String,
+    /// Value of the environment variable. CloudNativePG performs a direct
+    /// replacement of this value, with support for placeholder expansion.
+    /// The ${`image_root`} placeholder resolves to the absolute mount path
+    /// of the extension's volume (e.g., `/extensions/my-extension`). This
+    /// is particularly useful for allowing applications or libraries to
+    /// locate specific directories within the mounted image.
+    /// Unrecognized placeholders are rejected. To include a literal ${...}
+    /// in the value, escape it as $${...}.
+    pub value: String,
+}
+
+/// The image containing the extension.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterStatusTargetPgDataImageInfoExtensionsImage {
+    /// Policy for pulling OCI objects. Possible values are:
+    /// Always: the kubelet always attempts to pull the reference. Container creation will fail If the pull fails.
+    /// Never: the kubelet never pulls the reference and only uses a local image or artifact. Container creation will fail if the reference isn't present.
+    /// IfNotPresent: the kubelet pulls if the reference isn't already present on disk. Container creation will fail if the reference isn't present and the pull fails.
+    /// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "pullPolicy"
+    )]
+    pub pull_policy: Option<String>,
+    /// Required: Image or artifact reference to be used.
+    /// Behaves in the same way as pod.spec.containers[*].image.
+    /// Pull secrets will be assembled in the same way as for the container image by looking up node credentials, SA image pull secrets, and pod spec image pull secrets.
+    /// More info: <https://kubernetes.io/docs/concepts/containers/images>
+    /// This field is optional to allow higher level config management to default or override
+    /// container images in workload controllers like Deployments and StatefulSets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }
 
 /// Instances topology.

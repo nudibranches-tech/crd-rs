@@ -22,6 +22,7 @@ declare -A CRDS=(
     ["postgresql.cnpg.io_backups.yaml"]="backup"
     ["postgresql.cnpg.io_clusters.yaml"]="cluster"
     ["postgresql.cnpg.io_clusterimagecatalogs.yaml"]="cluster_image_catalog"
+    ["postgresql.cnpg.io_databaseroles.yaml"]="database_role"
     ["postgresql.cnpg.io_databases.yaml"]="database"
     ["postgresql.cnpg.io_failoverquorums.yaml"]="failover_quorum"
     ["postgresql.cnpg.io_imagecatalogs.yaml"]="image_catalog"

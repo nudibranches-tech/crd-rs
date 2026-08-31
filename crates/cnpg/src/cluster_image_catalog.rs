@@ -14,8 +14,25 @@ use crate::prelude::*;
     plural = "clusterimagecatalogs"
 )]
 pub struct ClusterImageCatalogSpec {
+    /// ComponentImages is a list of named images for components other than PostgreSQL
+    /// (e.g. pgbouncer). Keys must be unique within a catalog.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "componentImages"
+    )]
+    pub component_images: Option<Vec<ClusterImageCatalogComponentImages>>,
     /// List of CatalogImages available in the catalog
     pub images: Vec<ClusterImageCatalogImages>,
+}
+
+/// CatalogComponentImage is a named image entry for a non-PostgreSQL component.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterImageCatalogComponentImages {
+    /// Image is the container image reference.
+    pub image: String,
+    /// Key is the unique identifier for this image within the catalog.
+    pub key: String,
 }
 
 /// CatalogImage defines the image and major version
@@ -59,7 +76,9 @@ pub struct ClusterImageCatalogImagesExtensions {
     /// The list of directories inside the image which should be added to ld_library_path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ld_library_path: Option<Vec<String>>,
-    /// The name of the extension, required
+    /// The name of the extension, required. The limit of 59 characters
+    /// leaves room for the prefix the operator adds when deriving the
+    /// extension's Kubernetes Volume name (capped at 63 characters).
     pub name: String,
 }
 
