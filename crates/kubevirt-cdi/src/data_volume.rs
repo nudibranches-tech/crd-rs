@@ -378,6 +378,13 @@ pub struct DataVolumeSourceHttp {
         rename = "extraHeaders"
     )]
     pub extra_headers: Option<Vec<String>>,
+    /// InsecureSkipVerify is a flag to skip certificate verification for the HTTP endpoint
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "insecureSkipVerify"
+    )]
+    pub insecure_skip_verify: Option<bool>,
     /// SecretExtraHeaders is a list of Secret references, each containing an extra HTTP header that may include sensitive information
     #[serde(
         default,
@@ -511,6 +518,13 @@ pub struct DataVolumeSourceVddk {
         rename = "backingFile"
     )]
     pub backing_file: Option<String>,
+    /// CertConfigMap provides a reference to a ConfigMap containing the certificate authority (CA) certificate for the vCenter or ESXi host
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "certConfigMap"
+    )]
+    pub cert_config_map: Option<String>,
     /// ExtraArgs is a reference to a ConfigMap containing extra arguments to pass directly to the VDDK library
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraArgs")]
     pub extra_args: Option<String>,

@@ -29,6 +29,9 @@ pub struct CiliumEndpointSliceEndpoints {
     /// EndpointNetworking is the addressing information of an endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub networking: Option<CiliumEndpointSliceEndpointsNetworking>,
+    /// PodUID is the UID of the Pod that owns this endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "pod-uid")]
+    pub pod_uid: Option<String>,
     /// ServiceAccount is the service account of the endpoint.
     #[serde(
         default,
