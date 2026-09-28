@@ -958,7 +958,8 @@ pub struct VirtualMachineTemplateSpec {
     /// This is an alpha field and requires enabling the
     /// DynamicResourceAllocation feature gate in kubernetes
     ///  <https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/>
-    /// This field should only be configured if one of the feature-gates GPUsWithDRA or HostDevicesWithDRA is enabled.
+    /// This field should only be configured if one of the feature-gates GPUsWithDRA, HostDevicesWithDRA,
+    /// or NetworkDevicesWithDRA is enabled.
     /// This feature is in alpha.
     #[serde(
         default,
@@ -974,6 +975,16 @@ pub struct VirtualMachineTemplateSpec {
         rename = "schedulerName"
     )]
     pub scheduler_name: Option<String>,
+    /// ServiceAccountName is the name of the ServiceAccount to use to run the
+    /// virt-launcher pod. This sets pod.spec.serviceAccountName but does NOT
+    /// automatically expose the service account token to the VM guest.
+    /// To expose the token to the VM, use a serviceAccount volume.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceAccountName"
+    )]
+    pub service_account_name: Option<String>,
     /// StartStrategy can be set to "Paused" if Virtual Machine should be started in paused state.
     #[serde(
         default,
@@ -2558,8 +2569,10 @@ pub struct VirtualMachineTemplateSpecDomainDevicesFilesystemsVirtiofs {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineTemplateSpecDomainDevicesGpus {
-    /// ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
-    /// device is allocated
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
     pub claim_name: Option<String>,
     /// DeviceName is the name of the device provisioned by device-plugins
@@ -2571,8 +2584,9 @@ pub struct VirtualMachineTemplateSpecDomainDevicesGpus {
     pub device_name: Option<String>,
     /// Name of the GPU device as exposed by a device plugin
     pub name: String,
-    /// RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
-    /// device is requested
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2620,8 +2634,10 @@ pub struct VirtualMachineTemplateSpecDomainDevicesGpusVirtualGpuOptionsDisplayRa
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineTemplateSpecDomainDevicesHostDevices {
-    /// ClaimName needs to be provided from the list vmi.spec.resourceClaims[].name where this
-    /// device is allocated
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
     pub claim_name: Option<String>,
     /// DeviceName is the name of the device provisioned by device-plugins
@@ -2632,8 +2648,9 @@ pub struct VirtualMachineTemplateSpecDomainDevicesHostDevices {
     )]
     pub device_name: Option<String>,
     pub name: String,
-    /// RequestName needs to be provided from resourceClaim.spec.devices.requests[].name where this
-    /// device is requested
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2729,7 +2746,17 @@ pub struct VirtualMachineTemplateSpecDomainDevicesInterfaces {
         rename = "pciAddress"
     )]
     pub pci_address: Option<String>,
+    /// List of port ranges to be forwarded to the virtual machine.
+    /// Mutually exclusive with ports. Only supported on masquerade interfaces.
+    /// This feature is in Alpha.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "portRanges"
+    )]
+    pub port_ranges: Option<Vec<VirtualMachineTemplateSpecDomainDevicesInterfacesPortRanges>>,
     /// List of ports to be forwarded to the virtual machine.
+    /// Mutually exclusive with portRanges.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<VirtualMachineTemplateSpecDomainDevicesInterfacesPorts>>,
     /// DeprecatedSlirp is an alias to the deprecated Slirp interface
@@ -2830,6 +2857,21 @@ pub struct VirtualMachineTemplateSpecDomainDevicesInterfacesPasst {}
 /// InterfacePasstBinding connects to a given network using passt usermode networking.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineTemplateSpecDomainDevicesInterfacesPasstBinding {}
+
+/// PortRange represents a range of ports to be forwarded to the virtual machine.
+/// All fields are mandatory.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineTemplateSpecDomainDevicesInterfacesPortRanges {
+    /// Last port of the range to expose for the virtual machine.
+    /// This must be a valid port number, 0 < x < 65536.
+    /// Must be greater than or equal to start.
+    pub end: i32,
+    /// Required. Must be UDP or TCP.
+    pub protocol: String,
+    /// First port of the range to expose for the virtual machine.
+    /// This must be a valid port number, 0 < x < 65536.
+    pub start: i32,
+}
 
 /// Port represents a port to expose from the virtual machine.
 /// Default protocol TCP.
@@ -3760,6 +3802,17 @@ pub struct VirtualMachineTemplateSpecNetworks {
     /// Represents the stock pod network interface.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pod: Option<VirtualMachineTemplateSpecNetworksPod>,
+    /// ResourceClaim represents a network resource requested
+    /// via a VMI spec.resourceClaims[] entry, backed by either a
+    /// Kubernetes ResourceClaim or ResourceClaimTemplate.
+    /// This field should only be configured if the NetworkDevicesWithDRA feature-gate is enabled.
+    /// This feature is in alpha.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "resourceClaim"
+    )]
+    pub resource_claim: Option<VirtualMachineTemplateSpecNetworksResourceClaim>,
 }
 
 /// Represents the multus cni network.
@@ -3795,6 +3848,30 @@ pub struct VirtualMachineTemplateSpecNetworksPod {
         rename = "vmNetworkCIDR"
     )]
     pub vm_network_cidr: Option<String>,
+}
+
+/// ResourceClaim represents a network resource requested
+/// via a VMI spec.resourceClaims[] entry, backed by either a
+/// Kubernetes ResourceClaim or ResourceClaimTemplate.
+/// This field should only be configured if the NetworkDevicesWithDRA feature-gate is enabled.
+/// This feature is in alpha.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineTemplateSpecNetworksResourceClaim {
+    /// ClaimName references the name of an entry in the
+    /// VMI's spec.resourceClaims[] array. The referenced
+    /// entry may use either resourceClaimName or
+    /// resourceClaimTemplateName.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
+    pub claim_name: Option<String>,
+    /// RequestName specifies which request from the
+    /// ResourceClaim/ResourceClaimTemplate spec.devices.requests array this
+    /// claim request corresponds to.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "requestName"
+    )]
+    pub request_name: Option<String>,
 }
 
 /// Periodic probe of VirtualMachineInstance service readiness.
@@ -3949,19 +4026,13 @@ pub struct VirtualMachineTemplateSpecReadinessProbeTcpSocket {
     pub port: IntOrString,
 }
 
-/// PodResourceClaim references exactly one ResourceClaim, either directly
-/// or by naming a ResourceClaimTemplate which is then turned into a ResourceClaim
-/// for the pod.
-///
-/// It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
-/// Containers that need access to the ResourceClaim reference it with this name.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineTemplateSpecResourceClaims {
-    /// Name uniquely identifies this resource claim inside the pod.
-    /// This must be a DNS_LABEL.
+    /// Name uniquely identifies this resource claim inside the VMI.
+    /// This field is required and must be a DNS_LABEL.
     pub name: String,
     /// ResourceClaimName is the name of a ResourceClaim object in the same
-    /// namespace as this pod.
+    /// namespace as this VMI.
     ///
     /// Exactly one of ResourceClaimName and ResourceClaimTemplateName must
     /// be set.
@@ -3972,17 +4043,14 @@ pub struct VirtualMachineTemplateSpecResourceClaims {
     )]
     pub resource_claim_name: Option<String>,
     /// ResourceClaimTemplateName is the name of a ResourceClaimTemplate
-    /// object in the same namespace as this pod.
+    /// object in the same namespace as this VMI.
     ///
-    /// The template will be used to create a new ResourceClaim, which will
-    /// be bound to this pod. When this pod is deleted, the ResourceClaim
-    /// will also be deleted. The pod name and resource name, along with a
-    /// generated component, will be used to form a unique name for the
-    /// ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
-    ///
-    /// This field is immutable and no changes will be made to the
-    /// corresponding ResourceClaim by the control plane after creating the
-    /// ResourceClaim.
+    /// The template name is passed through to the generated virt-launcher Pod
+    /// spec. From the Pod spec, the template is used to create a new
+    /// ResourceClaim, which is bound to the virt-launcher Pod. When the
+    /// virt-launcher Pod is deleted, the ResourceClaim is also deleted. The
+    /// generated ResourceClaim name is unique and is recorded in
+    /// pod.status.resourceClaimStatuses.
     ///
     /// Exactly one of ResourceClaimName and ResourceClaimTemplateName must
     /// be set.
@@ -4967,6 +5035,13 @@ pub struct VirtualMachineStatusChangedBlockTrackingBackupStatus {
     /// Failed indicates that the backup failed
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<bool>,
+    /// QuiesceStatus indicates whether filesystem freeze succeeded, failed, or was skipped.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "quiesceStatus"
+    )]
+    pub quiesce_status: Option<String>,
     /// StartTimestamp is the timestamp when the backup started
     #[serde(
         default,
