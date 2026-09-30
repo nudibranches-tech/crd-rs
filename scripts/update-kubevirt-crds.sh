@@ -91,7 +91,7 @@ for crd_file in "${!CRDS[@]}"; do
     mod_name="${CRDS[$crd_file]}"
     echo "  Generating module ${mod_name}..."
     # Generate without prelude, then prepend the crate-level prelude import
-    (cd "$ROOT_DIR" && kopium -f "${CRDS_REL_DIR}/${crd_file}" --schema=derived -d --hide-prelude) > "${SRC_DIR}/${mod_name}.rs.tmp"
+    (cd "$ROOT_DIR" && kopium -f "${CRDS_REL_DIR}/${crd_file}" --schema=derived -d --hide-prelude --no-condition) > "${SRC_DIR}/${mod_name}.rs.tmp"
     {
         echo "use crate::prelude::*;"
         echo ""

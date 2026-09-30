@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "crd-rs-kubevirt"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "k8s-openapi",
  "kube",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "crd-rs-kubevirt-cdi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "k8s-openapi",
  "kube",
