@@ -169,7 +169,7 @@ pub struct CiliumClusterwideNetworkPolicyEgress {
     pub to_endpoints: Option<Vec<CiliumClusterwideNetworkPolicyEgressToEndpoints>>,
     /// ToEntities is a list of special entities to which the endpoint subject
     /// to the rule is allowed to initiate connections. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -192,9 +192,10 @@ pub struct CiliumClusterwideNetworkPolicyEgress {
     /// Note: ToFQDN cannot occur in the same policy as other To* rules.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "toFQDNs")]
     pub to_fqd_ns: Option<Vec<CiliumClusterwideNetworkPolicyEgressToFqdNs>>,
-    /// ToGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// ToGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// ToGroups entries are functionally equivalent to toCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
     /// toGroups:
@@ -462,8 +463,7 @@ pub struct CiliumClusterwideNetworkPolicyEgressToFqdNs {
     pub match_pattern: Option<String>,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyEgressToGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -474,16 +474,29 @@ pub struct CiliumClusterwideNetworkPolicyEgressToGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyEgressToGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -698,7 +711,12 @@ pub struct CiliumClusterwideNetworkPolicyEgressToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -721,6 +739,16 @@ pub enum CiliumClusterwideNetworkPolicyEgressToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -736,16 +764,6 @@ pub struct CiliumClusterwideNetworkPolicyEgressToPortsRules {
     /// HTTP specific rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<Vec<CiliumClusterwideNetworkPolicyEgressToPortsRulesHttp>>,
-    /// Kafka-specific rules.
-    /// Deprecated: This beta feature is deprecated and will be removed in a future release.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kafka: Option<Vec<CiliumClusterwideNetworkPolicyEgressToPortsRulesKafka>>,
-    /// Key-value pair rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7: Option<Vec<BTreeMap<String, String>>>,
-    /// Name of the L7 protocol for which the Key-value pair rules apply.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7proto: Option<String>,
 }
 
 /// PortRuleDNS is a list of allowed DNS lookups.
@@ -884,88 +902,6 @@ pub struct CiliumClusterwideNetworkPolicyEgressToPortsRulesHttpHeaderMatchesSecr
     /// determines the default value if left out (e.g., "default").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct CiliumClusterwideNetworkPolicyEgressToPortsRulesKafka {
-    /// APIKey is a case-insensitive string matched against the key of a
-    /// request, e.g. "produce", "fetch", "createtopic", "deletetopic", et al
-    /// Reference: <https://kafka.apache.org/protocol#protocol_api_keys>
-    ///
-    /// If omitted or empty, and if Role is not specified, then all keys are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiKey")]
-    pub api_key: Option<String>,
-    /// APIVersion is the version matched against the api version of the
-    /// Kafka message. If set, it has to be a string representing a positive
-    /// integer.
-    ///
-    /// If omitted or empty, all versions are allowed.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "apiVersion"
-    )]
-    pub api_version: Option<String>,
-    /// ClientID is the client identifier as provided in the request.
-    ///
-    /// From Kafka protocol documentation:
-    /// This is a user supplied identifier for the client application. The
-    /// user can use any identifier they like and it will be used when
-    /// logging errors, monitoring aggregates, etc. For example, one might
-    /// want to monitor not just the requests per second overall, but the
-    /// number coming from each client application (each of which could
-    /// reside on multiple servers). This id acts as a logical grouping
-    /// across all requests from a particular client.
-    ///
-    /// If omitted or empty, all client identifiers are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "clientID")]
-    pub client_id: Option<String>,
-    /// Role is a case-insensitive string and describes a group of API keys
-    /// necessary to perform certain higher-level Kafka operations such as "produce"
-    /// or "consume". A Role automatically expands into all APIKeys required
-    /// to perform the specified higher-level operation.
-    ///
-    /// The following values are supported:
-    ///  - "produce": Allow producing to the topics specified in the rule
-    ///  - "consume": Allow consuming from the topics specified in the rule
-    ///
-    /// This field is incompatible with the APIKey field, i.e APIKey and Role
-    /// cannot both be specified in the same rule.
-    ///
-    /// If omitted or empty, and if APIKey is not specified, then all keys are
-    /// allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<CiliumClusterwideNetworkPolicyEgressToPortsRulesKafkaRole>,
-    /// Topic is the topic name contained in the message. If a Kafka request
-    /// contains multiple topics, then all topics must be allowed or the
-    /// message will be rejected.
-    ///
-    /// This constraint is ignored if the matched request message type
-    /// doesn't contain any topic. Maximum size of Topic can be 249
-    /// characters as per recent Kafka spec and allowed characters are
-    /// a-z, A-Z, 0-9, -, . and _.
-    ///
-    /// Older Kafka versions had longer topic lengths of 255, but in Kafka 0.10
-    /// version the length was changed from 255 to 249. For compatibility
-    /// reasons we are using 255.
-    ///
-    /// If omitted or empty, all topics are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub enum CiliumClusterwideNetworkPolicyEgressToPortsRulesKafkaRole {
-    #[serde(rename = "produce")]
-    Produce,
-    #[serde(rename = "consume")]
-    Consume,
 }
 
 /// TerminatingTLS is the TLS context for the connection terminated by
@@ -1177,7 +1113,7 @@ pub struct CiliumClusterwideNetworkPolicyEgressDeny {
     pub to_endpoints: Option<Vec<CiliumClusterwideNetworkPolicyEgressDenyToEndpoints>>,
     /// ToEntities is a list of special entities to which the endpoint subject
     /// to the rule is allowed to initiate connections. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -1185,9 +1121,10 @@ pub struct CiliumClusterwideNetworkPolicyEgressDeny {
         rename = "toEntities"
     )]
     pub to_entities: Option<Vec<String>>,
-    /// ToGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// ToGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// ToGroups entries are functionally equivalent to toCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
     /// toGroups:
@@ -1407,8 +1344,7 @@ pub enum CiliumClusterwideNetworkPolicyEgressDenyToEndpointsMatchExpressionsOper
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyEgressDenyToGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -1419,16 +1355,29 @@ pub struct CiliumClusterwideNetworkPolicyEgressDenyToGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyEgressDenyToGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1509,7 +1458,12 @@ pub struct CiliumClusterwideNetworkPolicyEgressDenyToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -1532,6 +1486,16 @@ pub enum CiliumClusterwideNetworkPolicyEgressDenyToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -1769,7 +1733,7 @@ pub struct CiliumClusterwideNetworkPolicyIngress {
     pub from_endpoints: Option<Vec<CiliumClusterwideNetworkPolicyIngressFromEndpoints>>,
     /// FromEntities is a list of special entities which the endpoint subject
     /// to the rule is allowed to receive connections from. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -1777,12 +1741,13 @@ pub struct CiliumClusterwideNetworkPolicyIngress {
         rename = "fromEntities"
     )]
     pub from_entities: Option<Vec<String>>,
-    /// FromGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// FromGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// FromGroups entries are functionally equivalent to FromCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
-    /// FromGroups:
+    /// fromGroups:
     /// - aws:
     ///     securityGroupsIds:
     ///     - 'sg-XXXXXXXXXXXXX'
@@ -1980,8 +1945,7 @@ pub enum CiliumClusterwideNetworkPolicyIngressFromEndpointsMatchExpressionsOpera
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyIngressFromGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -1992,16 +1956,29 @@ pub struct CiliumClusterwideNetworkPolicyIngressFromGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyIngressFromGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2258,7 +2235,12 @@ pub struct CiliumClusterwideNetworkPolicyIngressToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -2281,6 +2263,16 @@ pub enum CiliumClusterwideNetworkPolicyIngressToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -2296,16 +2288,6 @@ pub struct CiliumClusterwideNetworkPolicyIngressToPortsRules {
     /// HTTP specific rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<Vec<CiliumClusterwideNetworkPolicyIngressToPortsRulesHttp>>,
-    /// Kafka-specific rules.
-    /// Deprecated: This beta feature is deprecated and will be removed in a future release.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kafka: Option<Vec<CiliumClusterwideNetworkPolicyIngressToPortsRulesKafka>>,
-    /// Key-value pair rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7: Option<Vec<BTreeMap<String, String>>>,
-    /// Name of the L7 protocol for which the Key-value pair rules apply.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7proto: Option<String>,
 }
 
 /// PortRuleDNS is a list of allowed DNS lookups.
@@ -2447,88 +2429,6 @@ pub struct CiliumClusterwideNetworkPolicyIngressToPortsRulesHttpHeaderMatchesSec
     pub namespace: Option<String>,
 }
 
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct CiliumClusterwideNetworkPolicyIngressToPortsRulesKafka {
-    /// APIKey is a case-insensitive string matched against the key of a
-    /// request, e.g. "produce", "fetch", "createtopic", "deletetopic", et al
-    /// Reference: <https://kafka.apache.org/protocol#protocol_api_keys>
-    ///
-    /// If omitted or empty, and if Role is not specified, then all keys are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiKey")]
-    pub api_key: Option<String>,
-    /// APIVersion is the version matched against the api version of the
-    /// Kafka message. If set, it has to be a string representing a positive
-    /// integer.
-    ///
-    /// If omitted or empty, all versions are allowed.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "apiVersion"
-    )]
-    pub api_version: Option<String>,
-    /// ClientID is the client identifier as provided in the request.
-    ///
-    /// From Kafka protocol documentation:
-    /// This is a user supplied identifier for the client application. The
-    /// user can use any identifier they like and it will be used when
-    /// logging errors, monitoring aggregates, etc. For example, one might
-    /// want to monitor not just the requests per second overall, but the
-    /// number coming from each client application (each of which could
-    /// reside on multiple servers). This id acts as a logical grouping
-    /// across all requests from a particular client.
-    ///
-    /// If omitted or empty, all client identifiers are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "clientID")]
-    pub client_id: Option<String>,
-    /// Role is a case-insensitive string and describes a group of API keys
-    /// necessary to perform certain higher-level Kafka operations such as "produce"
-    /// or "consume". A Role automatically expands into all APIKeys required
-    /// to perform the specified higher-level operation.
-    ///
-    /// The following values are supported:
-    ///  - "produce": Allow producing to the topics specified in the rule
-    ///  - "consume": Allow consuming from the topics specified in the rule
-    ///
-    /// This field is incompatible with the APIKey field, i.e APIKey and Role
-    /// cannot both be specified in the same rule.
-    ///
-    /// If omitted or empty, and if APIKey is not specified, then all keys are
-    /// allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<CiliumClusterwideNetworkPolicyIngressToPortsRulesKafkaRole>,
-    /// Topic is the topic name contained in the message. If a Kafka request
-    /// contains multiple topics, then all topics must be allowed or the
-    /// message will be rejected.
-    ///
-    /// This constraint is ignored if the matched request message type
-    /// doesn't contain any topic. Maximum size of Topic can be 249
-    /// characters as per recent Kafka spec and allowed characters are
-    /// a-z, A-Z, 0-9, -, . and _.
-    ///
-    /// Older Kafka versions had longer topic lengths of 255, but in Kafka 0.10
-    /// version the length was changed from 255 to 249. For compatibility
-    /// reasons we are using 255.
-    ///
-    /// If omitted or empty, all topics are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub enum CiliumClusterwideNetworkPolicyIngressToPortsRulesKafkaRole {
-    #[serde(rename = "produce")]
-    Produce,
-    #[serde(rename = "consume")]
-    Consume,
-}
-
 /// TerminatingTLS is the TLS context for the connection terminated by
 /// the L7 proxy.  For egress policy this specifies the server-side TLS
 /// parameters to be applied on the connections originated from the local
@@ -2649,7 +2549,7 @@ pub struct CiliumClusterwideNetworkPolicyIngressDeny {
     pub from_endpoints: Option<Vec<CiliumClusterwideNetworkPolicyIngressDenyFromEndpoints>>,
     /// FromEntities is a list of special entities which the endpoint subject
     /// to the rule is allowed to receive connections from. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -2657,12 +2557,13 @@ pub struct CiliumClusterwideNetworkPolicyIngressDeny {
         rename = "fromEntities"
     )]
     pub from_entities: Option<Vec<String>>,
-    /// FromGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// FromGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// FromGroups entries are functionally equivalent to FromCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
-    /// FromGroups:
+    /// fromGroups:
     /// - aws:
     ///     securityGroupsIds:
     ///     - 'sg-XXXXXXXXXXXXX'
@@ -2842,8 +2743,7 @@ pub enum CiliumClusterwideNetworkPolicyIngressDenyFromEndpointsMatchExpressionsO
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyIngressDenyFromGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -2854,16 +2754,29 @@ pub struct CiliumClusterwideNetworkPolicyIngressDenyFromGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyIngressDenyFromGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2985,7 +2898,12 @@ pub struct CiliumClusterwideNetworkPolicyIngressDenyToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -3008,15 +2926,25 @@ pub enum CiliumClusterwideNetworkPolicyIngressDenyToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
 
-/// Label is the Cilium's representation of a container label.
+/// Label is Cilium's representation of a label.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicyLabels {
     pub key: String,
-    /// Source can be one of the above values (e.g.: LabelSourceContainer).
+    /// Source can be one of the above values (e.g.: LabelSourceK8s).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3250,7 +3178,7 @@ pub struct CiliumClusterwideNetworkPolicysEgress {
     pub to_endpoints: Option<Vec<CiliumClusterwideNetworkPolicysEgressToEndpoints>>,
     /// ToEntities is a list of special entities to which the endpoint subject
     /// to the rule is allowed to initiate connections. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -3273,9 +3201,10 @@ pub struct CiliumClusterwideNetworkPolicysEgress {
     /// Note: ToFQDN cannot occur in the same policy as other To* rules.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "toFQDNs")]
     pub to_fqd_ns: Option<Vec<CiliumClusterwideNetworkPolicysEgressToFqdNs>>,
-    /// ToGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// ToGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// ToGroups entries are functionally equivalent to toCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
     /// toGroups:
@@ -3545,8 +3474,7 @@ pub struct CiliumClusterwideNetworkPolicysEgressToFqdNs {
     pub match_pattern: Option<String>,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysEgressToGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -3557,16 +3485,29 @@ pub struct CiliumClusterwideNetworkPolicysEgressToGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysEgressToGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -3782,7 +3723,12 @@ pub struct CiliumClusterwideNetworkPolicysEgressToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -3805,6 +3751,16 @@ pub enum CiliumClusterwideNetworkPolicysEgressToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -3820,16 +3776,6 @@ pub struct CiliumClusterwideNetworkPolicysEgressToPortsRules {
     /// HTTP specific rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<Vec<CiliumClusterwideNetworkPolicysEgressToPortsRulesHttp>>,
-    /// Kafka-specific rules.
-    /// Deprecated: This beta feature is deprecated and will be removed in a future release.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kafka: Option<Vec<CiliumClusterwideNetworkPolicysEgressToPortsRulesKafka>>,
-    /// Key-value pair rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7: Option<Vec<BTreeMap<String, String>>>,
-    /// Name of the L7 protocol for which the Key-value pair rules apply.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7proto: Option<String>,
 }
 
 /// PortRuleDNS is a list of allowed DNS lookups.
@@ -3969,88 +3915,6 @@ pub struct CiliumClusterwideNetworkPolicysEgressToPortsRulesHttpHeaderMatchesSec
     /// determines the default value if left out (e.g., "default").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct CiliumClusterwideNetworkPolicysEgressToPortsRulesKafka {
-    /// APIKey is a case-insensitive string matched against the key of a
-    /// request, e.g. "produce", "fetch", "createtopic", "deletetopic", et al
-    /// Reference: <https://kafka.apache.org/protocol#protocol_api_keys>
-    ///
-    /// If omitted or empty, and if Role is not specified, then all keys are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiKey")]
-    pub api_key: Option<String>,
-    /// APIVersion is the version matched against the api version of the
-    /// Kafka message. If set, it has to be a string representing a positive
-    /// integer.
-    ///
-    /// If omitted or empty, all versions are allowed.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "apiVersion"
-    )]
-    pub api_version: Option<String>,
-    /// ClientID is the client identifier as provided in the request.
-    ///
-    /// From Kafka protocol documentation:
-    /// This is a user supplied identifier for the client application. The
-    /// user can use any identifier they like and it will be used when
-    /// logging errors, monitoring aggregates, etc. For example, one might
-    /// want to monitor not just the requests per second overall, but the
-    /// number coming from each client application (each of which could
-    /// reside on multiple servers). This id acts as a logical grouping
-    /// across all requests from a particular client.
-    ///
-    /// If omitted or empty, all client identifiers are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "clientID")]
-    pub client_id: Option<String>,
-    /// Role is a case-insensitive string and describes a group of API keys
-    /// necessary to perform certain higher-level Kafka operations such as "produce"
-    /// or "consume". A Role automatically expands into all APIKeys required
-    /// to perform the specified higher-level operation.
-    ///
-    /// The following values are supported:
-    ///  - "produce": Allow producing to the topics specified in the rule
-    ///  - "consume": Allow consuming from the topics specified in the rule
-    ///
-    /// This field is incompatible with the APIKey field, i.e APIKey and Role
-    /// cannot both be specified in the same rule.
-    ///
-    /// If omitted or empty, and if APIKey is not specified, then all keys are
-    /// allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<CiliumClusterwideNetworkPolicysEgressToPortsRulesKafkaRole>,
-    /// Topic is the topic name contained in the message. If a Kafka request
-    /// contains multiple topics, then all topics must be allowed or the
-    /// message will be rejected.
-    ///
-    /// This constraint is ignored if the matched request message type
-    /// doesn't contain any topic. Maximum size of Topic can be 249
-    /// characters as per recent Kafka spec and allowed characters are
-    /// a-z, A-Z, 0-9, -, . and _.
-    ///
-    /// Older Kafka versions had longer topic lengths of 255, but in Kafka 0.10
-    /// version the length was changed from 255 to 249. For compatibility
-    /// reasons we are using 255.
-    ///
-    /// If omitted or empty, all topics are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub enum CiliumClusterwideNetworkPolicysEgressToPortsRulesKafkaRole {
-    #[serde(rename = "produce")]
-    Produce,
-    #[serde(rename = "consume")]
-    Consume,
 }
 
 /// TerminatingTLS is the TLS context for the connection terminated by
@@ -4262,7 +4126,7 @@ pub struct CiliumClusterwideNetworkPolicysEgressDeny {
     pub to_endpoints: Option<Vec<CiliumClusterwideNetworkPolicysEgressDenyToEndpoints>>,
     /// ToEntities is a list of special entities to which the endpoint subject
     /// to the rule is allowed to initiate connections. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -4270,9 +4134,10 @@ pub struct CiliumClusterwideNetworkPolicysEgressDeny {
         rename = "toEntities"
     )]
     pub to_entities: Option<Vec<String>>,
-    /// ToGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// ToGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// ToGroups entries are functionally equivalent to toCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
     /// toGroups:
@@ -4492,8 +4357,7 @@ pub enum CiliumClusterwideNetworkPolicysEgressDenyToEndpointsMatchExpressionsOpe
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysEgressDenyToGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -4504,16 +4368,29 @@ pub struct CiliumClusterwideNetworkPolicysEgressDenyToGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysEgressDenyToGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -4594,7 +4471,12 @@ pub struct CiliumClusterwideNetworkPolicysEgressDenyToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -4617,6 +4499,16 @@ pub enum CiliumClusterwideNetworkPolicysEgressDenyToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -4854,7 +4746,7 @@ pub struct CiliumClusterwideNetworkPolicysIngress {
     pub from_endpoints: Option<Vec<CiliumClusterwideNetworkPolicysIngressFromEndpoints>>,
     /// FromEntities is a list of special entities which the endpoint subject
     /// to the rule is allowed to receive connections from. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -4862,12 +4754,13 @@ pub struct CiliumClusterwideNetworkPolicysIngress {
         rename = "fromEntities"
     )]
     pub from_entities: Option<Vec<String>>,
-    /// FromGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// FromGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// FromGroups entries are functionally equivalent to FromCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
-    /// FromGroups:
+    /// fromGroups:
     /// - aws:
     ///     securityGroupsIds:
     ///     - 'sg-XXXXXXXXXXXXX'
@@ -5066,8 +4959,7 @@ pub enum CiliumClusterwideNetworkPolicysIngressFromEndpointsMatchExpressionsOper
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysIngressFromGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -5078,16 +4970,29 @@ pub struct CiliumClusterwideNetworkPolicysIngressFromGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysIngressFromGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -5344,7 +5249,12 @@ pub struct CiliumClusterwideNetworkPolicysIngressToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -5367,6 +5277,16 @@ pub enum CiliumClusterwideNetworkPolicysIngressToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
@@ -5382,16 +5302,6 @@ pub struct CiliumClusterwideNetworkPolicysIngressToPortsRules {
     /// HTTP specific rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<Vec<CiliumClusterwideNetworkPolicysIngressToPortsRulesHttp>>,
-    /// Kafka-specific rules.
-    /// Deprecated: This beta feature is deprecated and will be removed in a future release.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kafka: Option<Vec<CiliumClusterwideNetworkPolicysIngressToPortsRulesKafka>>,
-    /// Key-value pair rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7: Option<Vec<BTreeMap<String, String>>>,
-    /// Name of the L7 protocol for which the Key-value pair rules apply.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub l7proto: Option<String>,
 }
 
 /// PortRuleDNS is a list of allowed DNS lookups.
@@ -5533,88 +5443,6 @@ pub struct CiliumClusterwideNetworkPolicysIngressToPortsRulesHttpHeaderMatchesSe
     pub namespace: Option<String>,
 }
 
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct CiliumClusterwideNetworkPolicysIngressToPortsRulesKafka {
-    /// APIKey is a case-insensitive string matched against the key of a
-    /// request, e.g. "produce", "fetch", "createtopic", "deletetopic", et al
-    /// Reference: <https://kafka.apache.org/protocol#protocol_api_keys>
-    ///
-    /// If omitted or empty, and if Role is not specified, then all keys are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiKey")]
-    pub api_key: Option<String>,
-    /// APIVersion is the version matched against the api version of the
-    /// Kafka message. If set, it has to be a string representing a positive
-    /// integer.
-    ///
-    /// If omitted or empty, all versions are allowed.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "apiVersion"
-    )]
-    pub api_version: Option<String>,
-    /// ClientID is the client identifier as provided in the request.
-    ///
-    /// From Kafka protocol documentation:
-    /// This is a user supplied identifier for the client application. The
-    /// user can use any identifier they like and it will be used when
-    /// logging errors, monitoring aggregates, etc. For example, one might
-    /// want to monitor not just the requests per second overall, but the
-    /// number coming from each client application (each of which could
-    /// reside on multiple servers). This id acts as a logical grouping
-    /// across all requests from a particular client.
-    ///
-    /// If omitted or empty, all client identifiers are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "clientID")]
-    pub client_id: Option<String>,
-    /// Role is a case-insensitive string and describes a group of API keys
-    /// necessary to perform certain higher-level Kafka operations such as "produce"
-    /// or "consume". A Role automatically expands into all APIKeys required
-    /// to perform the specified higher-level operation.
-    ///
-    /// The following values are supported:
-    ///  - "produce": Allow producing to the topics specified in the rule
-    ///  - "consume": Allow consuming from the topics specified in the rule
-    ///
-    /// This field is incompatible with the APIKey field, i.e APIKey and Role
-    /// cannot both be specified in the same rule.
-    ///
-    /// If omitted or empty, and if APIKey is not specified, then all keys are
-    /// allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<CiliumClusterwideNetworkPolicysIngressToPortsRulesKafkaRole>,
-    /// Topic is the topic name contained in the message. If a Kafka request
-    /// contains multiple topics, then all topics must be allowed or the
-    /// message will be rejected.
-    ///
-    /// This constraint is ignored if the matched request message type
-    /// doesn't contain any topic. Maximum size of Topic can be 249
-    /// characters as per recent Kafka spec and allowed characters are
-    /// a-z, A-Z, 0-9, -, . and _.
-    ///
-    /// Older Kafka versions had longer topic lengths of 255, but in Kafka 0.10
-    /// version the length was changed from 255 to 249. For compatibility
-    /// reasons we are using 255.
-    ///
-    /// If omitted or empty, all topics are allowed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub topic: Option<String>,
-}
-
-/// PortRule is a list of Kafka protocol constraints. All fields are
-/// optional, if all fields are empty or missing, the rule will match all
-/// Kafka messages.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub enum CiliumClusterwideNetworkPolicysIngressToPortsRulesKafkaRole {
-    #[serde(rename = "produce")]
-    Produce,
-    #[serde(rename = "consume")]
-    Consume,
-}
-
 /// TerminatingTLS is the TLS context for the connection terminated by
 /// the L7 proxy.  For egress policy this specifies the server-side TLS
 /// parameters to be applied on the connections originated from the local
@@ -5735,7 +5563,7 @@ pub struct CiliumClusterwideNetworkPolicysIngressDeny {
     pub from_endpoints: Option<Vec<CiliumClusterwideNetworkPolicysIngressDenyFromEndpoints>>,
     /// FromEntities is a list of special entities which the endpoint subject
     /// to the rule is allowed to receive connections from. Supported entities are
-    /// `world`, `cluster`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
+    /// `world`, `cluster`, `cluster-mesh`, `host`, `remote-node`, `kube-apiserver`, `ingress`, `init`,
     /// `health`, `unmanaged`, `none` and `all`.
     #[serde(
         default,
@@ -5743,12 +5571,13 @@ pub struct CiliumClusterwideNetworkPolicysIngressDeny {
         rename = "fromEntities"
     )]
     pub from_entities: Option<Vec<String>>,
-    /// FromGroups is a directive that allows the integration with multiple outside
-    /// providers. Currently, only AWS is supported, and the rule can select by
-    /// multiple sub directives:
+    /// FromGroups allows policies to reference CIDRs provided by external integrations.
+    /// Currently, only AWS is supported, and the rule can select by multiple sub directives.
+    /// FromGroups entries are functionally equivalent to FromCIDR, and have the same
+    /// limitiations. They cannot select traffic originating from within the cluster.
     ///
     /// Example:
-    /// FromGroups:
+    /// fromGroups:
     /// - aws:
     ///     securityGroupsIds:
     ///     - 'sg-XXXXXXXXXXXXX'
@@ -5928,8 +5757,7 @@ pub enum CiliumClusterwideNetworkPolicysIngressDenyFromEndpointsMatchExpressions
     DoesNotExist,
 }
 
-/// Groups structure to store all kinds of new integrations that needs a new
-/// derivative policy.
+/// Groups allows referencing CIDRs that are resolved from an external integration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysIngressDenyFromGroups {
     /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
@@ -5940,16 +5768,29 @@ pub struct CiliumClusterwideNetworkPolicysIngressDenyFromGroups {
 /// AWSGroup is an structure that can be used to whitelisting information from AWS integration
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysIngressDenyFromGroupsAws {
+    /// Labels selects AWS ENIs by labels.
+    /// Multiple labels are AND-ed together.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<BTreeMap<String, String>>,
+    /// Deprecated: Region is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
+    /// SecurityGroupsIds selects VPC SecurityGroups by IDs.
+    /// If multiple IDs are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any Names specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "securityGroupsIds"
     )]
     pub security_groups_ids: Option<Vec<String>>,
+    /// SecurityGroupsNames selects VPC SecurityGroups by name.
+    /// If multiple names are specified, they are OR-ed together.
+    ///
+    /// Note that this may be AND-ed with any IDs specified. Specifying both
+    /// IDs and Names is not recommended.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -6071,7 +5912,12 @@ pub struct CiliumClusterwideNetworkPolicysIngressDenyToPortsPorts {
     /// Protocol is the L4 protocol. If "ANY", omitted or empty, any protocols
     /// with transport ports (TCP, UDP, SCTP) match.
     ///
-    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "ANY"
+    /// Accepted values: "TCP", "UDP", "SCTP", "VRRP", "IGMP", "GRE", "IPIP",
+    /// "IPV6", "ESP", "AH", "ANY"
+    ///
+    /// Tunnel/encapsulation protocols (GRE, IPIP, IPV6, ESP, AH) and other
+    /// extended IP protocols (VRRP, IGMP) require the --enable-extended-ip-protocols
+    /// flag to be set. These protocols do not use transport-layer ports.
     ///
     /// Matching on ICMP is not supported.
     ///
@@ -6094,15 +5940,25 @@ pub enum CiliumClusterwideNetworkPolicysIngressDenyToPortsPortsProtocol {
     Vrrp,
     #[serde(rename = "IGMP")]
     Igmp,
+    #[serde(rename = "GRE")]
+    Gre,
+    #[serde(rename = "IPIP")]
+    Ipip,
+    #[serde(rename = "IPV6")]
+    Ipv6,
+    #[serde(rename = "ESP")]
+    Esp,
+    #[serde(rename = "AH")]
+    Ah,
     #[serde(rename = "ANY")]
     Any,
 }
 
-/// Label is the Cilium's representation of a container label.
+/// Label is Cilium's representation of a label.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct CiliumClusterwideNetworkPolicysLabels {
     pub key: String,
-    /// Source can be one of the above values (e.g.: LabelSourceContainer).
+    /// Source can be one of the above values (e.g.: LabelSourceK8s).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1021,6 +1021,27 @@ pub struct PoolerTemplateSpec {
         rename = "ephemeralContainers"
     )]
     pub ephemeral_containers: Option<Vec<PoolerTemplateSpecEphemeralContainers>>,
+    /// evictionResponders reference responders that react to Evictions based on EvictionRequests.
+    /// Responders should observe and communicate through the Eviction Resource API to help with
+    /// the graceful termination of a pod. The responders are selected sequentially, according to
+    /// their specified priority.
+    ///
+    /// Responders should periodically report on an eviction progress by updating the
+    /// .status.responders[].heartbeatTime field of the Eviction object. If this field is not updated
+    /// within the heartbeat deadline defined by the Eviction API (currently 20 minutes), the eviction
+    /// is passed over to the next responder with a lower priority. If there is no other responder,
+    /// the last default imperative-eviction.k8s.io/evictor responder with a priority of 100 will
+    /// evict the pod using the imperative Eviction API (pods/<name>/eviction subresource).
+    ///
+    /// The maximum length of the responders list is 10.
+    /// Responders are not supported when the pod is part of a PodGroup (.spec.schedulingGroup is set).
+    /// This field can only be set on creation and is immutable afterwards.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "evictionResponders"
+    )]
+    pub eviction_responders: Option<Vec<PoolerTemplateSpecEvictionResponders>>,
     /// HostAliases is an optional list of hosts and IPs that will be injected into the pod's hosts
     /// file if specified.
     #[serde(
@@ -1071,7 +1092,6 @@ pub struct PoolerTemplateSpec {
     /// - `hostNetwork` must be set to false.
     ///
     /// This field must be a valid DNS subdomain as defined in RFC 1123 and contain at most 64 characters.
-    /// Requires the HostnameOverride feature gate to be enabled.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1167,6 +1187,8 @@ pub struct PoolerTemplateSpec {
     pub overhead: Option<BTreeMap<String, IntOrString>>,
     /// PreemptionPolicy is the Policy for preempting pods with lower priority.
     /// One of Never, PreemptLowerPriority.
+    /// When Priority Admission Controller is enabled, it prevents users from setting
+    /// this field. The admission controller populates this field from PriorityClassName.
     /// Defaults to PreemptLowerPriority if unset.
     #[serde(
         default,
@@ -2407,7 +2429,8 @@ pub struct PoolerTemplateSpecContainersEnvValueFrom {
 /// Selects a key of a ConfigMap.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecContainersEnvValueFromConfigMapKeyRef {
-    /// The key to select.
+    /// The key to select from the ConfigMap's Data field.
+    /// Keys in the BinaryData field are not currently propagated to container env vars.
     pub key: String,
     /// Name of the referent.
     /// This field is effectively required, but due to backwards compatibility is
@@ -2633,6 +2656,10 @@ pub struct PoolerTemplateSpecContainersLifecyclePostStartHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2730,6 +2757,10 @@ pub struct PoolerTemplateSpecContainersLifecyclePreStopHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2859,6 +2890,12 @@ pub struct PoolerTemplateSpecContainersLivenessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecContainersLivenessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -2890,6 +2927,10 @@ pub struct PoolerTemplateSpecContainersLivenessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3037,6 +3078,12 @@ pub struct PoolerTemplateSpecContainersReadinessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecContainersReadinessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -3068,6 +3115,10 @@ pub struct PoolerTemplateSpecContainersReadinessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3516,6 +3567,12 @@ pub struct PoolerTemplateSpecContainersStartupProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecContainersStartupProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -3547,6 +3604,10 @@ pub struct PoolerTemplateSpecContainersStartupProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3588,8 +3649,19 @@ pub struct PoolerTemplateSpecContainersVolumeDevices {
 /// VolumeMount describes a mounting of a Volume within a container.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecContainersVolumeMounts {
-    /// Path within the container at which the volume should be mounted.  Must
-    /// not contain ':'.
+    /// bindMountOptions is the list of additional bind mount options to apply when
+    /// mounting this volume into the container. Allowed values are noexec,
+    /// nodev, and nosuid. These are Linux mount options and have no effect on
+    /// Windows nodes.
+    /// This field is not supported with image volumes.
+    /// This is an alpha field and requires enabling the VolumeBindMountOptions feature gate.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "bindMountOptions"
+    )]
+    pub bind_mount_options: Option<Vec<String>>,
+    /// Path within the container at which the volume should be mounted.
     #[serde(rename = "mountPath")]
     pub mount_path: String,
     /// mountPropagation determines how mounts are propagated from the host
@@ -3956,7 +4028,8 @@ pub struct PoolerTemplateSpecEphemeralContainersEnvValueFrom {
 /// Selects a key of a ConfigMap.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecEphemeralContainersEnvValueFromConfigMapKeyRef {
-    /// The key to select.
+    /// The key to select from the ConfigMap's Data field.
+    /// Keys in the BinaryData field are not currently propagated to container env vars.
     pub key: String,
     /// Name of the referent.
     /// This field is effectively required, but due to backwards compatibility is
@@ -4182,6 +4255,10 @@ pub struct PoolerTemplateSpecEphemeralContainersLifecyclePostStartHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4280,6 +4357,10 @@ pub struct PoolerTemplateSpecEphemeralContainersLifecyclePreStopHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4406,6 +4487,12 @@ pub struct PoolerTemplateSpecEphemeralContainersLivenessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecEphemeralContainersLivenessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -4438,6 +4525,10 @@ pub struct PoolerTemplateSpecEphemeralContainersLivenessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4582,6 +4673,12 @@ pub struct PoolerTemplateSpecEphemeralContainersReadinessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecEphemeralContainersReadinessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -4614,6 +4711,10 @@ pub struct PoolerTemplateSpecEphemeralContainersReadinessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5056,6 +5157,12 @@ pub struct PoolerTemplateSpecEphemeralContainersStartupProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecEphemeralContainersStartupProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -5088,6 +5195,10 @@ pub struct PoolerTemplateSpecEphemeralContainersStartupProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5129,8 +5240,19 @@ pub struct PoolerTemplateSpecEphemeralContainersVolumeDevices {
 /// VolumeMount describes a mounting of a Volume within a container.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecEphemeralContainersVolumeMounts {
-    /// Path within the container at which the volume should be mounted.  Must
-    /// not contain ':'.
+    /// bindMountOptions is the list of additional bind mount options to apply when
+    /// mounting this volume into the container. Allowed values are noexec,
+    /// nodev, and nosuid. These are Linux mount options and have no effect on
+    /// Windows nodes.
+    /// This field is not supported with image volumes.
+    /// This is an alpha field and requires enabling the VolumeBindMountOptions feature gate.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "bindMountOptions"
+    )]
+    pub bind_mount_options: Option<Vec<String>>,
+    /// Path within the container at which the volume should be mounted.
     #[serde(rename = "mountPath")]
     pub mount_path: String,
     /// mountPropagation determines how mounts are propagated from the host
@@ -5187,6 +5309,33 @@ pub struct PoolerTemplateSpecEphemeralContainersVolumeMounts {
         rename = "subPathExpr"
     )]
     pub sub_path_expr: Option<String>,
+}
+
+/// EvictionResponder allows you to specify the responder reacting to an Eviction.
+/// Responders should observe and communicate through the Eviction Resource API to help with
+/// the graceful eviction of a target (e.g. termination of a pod).
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PoolerTemplateSpecEvictionResponders {
+    /// name allows you to identify the responder responding to the Eviction.
+    ///
+    /// It must be a valid domain-prefixed key (such as "acme.io/foo").
+    /// Domain names *.k8s.io and *.kubernetes.io are reserved.
+    /// This field must be unique for each responder.
+    /// This field is required.
+    pub name: String,
+    /// priority for this responder. Higher priorities are selected first by the evictionrequest-controller.
+    /// If there are responders with the same priority, the responder whose domain name comes first in the
+    /// alphabetical higher domain order, will be picked. This means that the top domain labels are compared
+    /// alphabetically first, followed by the lower domain labels. The key is compared last.
+    ///
+    /// The responder that is the managing controller of the pod should set the value of
+    /// this field to 10000 to allow both for preemption or fallback registration by other
+    /// responders.
+    ///
+    /// The minimum value is 0 and the maximum value is 100000.
+    /// The interval 0-999 is reserved for responders with *.k8s.io suffix.
+    /// This field is required.
+    pub priority: i32,
 }
 
 /// HostAlias holds the mapping between IP and hostnames that will be injected as an entry in the
@@ -5510,7 +5659,8 @@ pub struct PoolerTemplateSpecInitContainersEnvValueFrom {
 /// Selects a key of a ConfigMap.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecInitContainersEnvValueFromConfigMapKeyRef {
-    /// The key to select.
+    /// The key to select from the ConfigMap's Data field.
+    /// Keys in the BinaryData field are not currently propagated to container env vars.
     pub key: String,
     /// Name of the referent.
     /// This field is effectively required, but due to backwards compatibility is
@@ -5737,6 +5887,10 @@ pub struct PoolerTemplateSpecInitContainersLifecyclePostStartHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5835,6 +5989,10 @@ pub struct PoolerTemplateSpecInitContainersLifecyclePreStopHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5964,6 +6122,12 @@ pub struct PoolerTemplateSpecInitContainersLivenessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecInitContainersLivenessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -5995,6 +6159,10 @@ pub struct PoolerTemplateSpecInitContainersLivenessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6142,6 +6310,12 @@ pub struct PoolerTemplateSpecInitContainersReadinessProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecInitContainersReadinessProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -6173,6 +6347,10 @@ pub struct PoolerTemplateSpecInitContainersReadinessProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6621,6 +6799,12 @@ pub struct PoolerTemplateSpecInitContainersStartupProbeExec {
 /// GRPC specifies a GRPC HealthCheckRequest.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecInitContainersStartupProbeGrpc {
+    /// mode specifies the connection mode for the gRPC health probe.
+    /// Set to "TLS" to use TLS without certificate verification.
+    /// Set to "Plaintext" to use a plaintext (insecure) connection explicitly.
+    /// If not specified, the probe uses a plaintext (insecure) connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Port number of the gRPC service. Number must be in the range 1 to 65535.
     pub port: i32,
     /// Service is the name of the service to place in the gRPC HealthCheckRequest
@@ -6652,6 +6836,10 @@ pub struct PoolerTemplateSpecInitContainersStartupProbeHttpGet {
     /// Number must be in the range 1 to 65535.
     /// Name must be an IANA_SVC_NAME.
     pub port: IntOrString,
+    /// Protocol selects the wire protocol for the probe connection.
+    /// Nil defaults to HTTP/1.1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     /// Scheme to use for connecting to the host.
     /// Defaults to HTTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6693,8 +6881,19 @@ pub struct PoolerTemplateSpecInitContainersVolumeDevices {
 /// VolumeMount describes a mounting of a Volume within a container.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecInitContainersVolumeMounts {
-    /// Path within the container at which the volume should be mounted.  Must
-    /// not contain ':'.
+    /// bindMountOptions is the list of additional bind mount options to apply when
+    /// mounting this volume into the container. Allowed values are noexec,
+    /// nodev, and nosuid. These are Linux mount options and have no effect on
+    /// Windows nodes.
+    /// This field is not supported with image volumes.
+    /// This is an alpha field and requires enabling the VolumeBindMountOptions feature gate.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "bindMountOptions"
+    )]
+    pub bind_mount_options: Option<Vec<String>>,
+    /// Path within the container at which the volume should be mounted.
     #[serde(rename = "mountPath")]
     pub mount_path: String,
     /// mountPropagation determines how mounts are propagated from the host
@@ -7026,11 +7225,8 @@ pub struct PoolerTemplateSpecSecurityContext {
     /// Eligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes
     /// whose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their
     /// CSIDriver instance. Other volumes are always re-labelled recursively.
-    /// "MountOption" value is allowed only when SELinuxMount feature gate is enabled.
     ///
-    /// If not specified and SELinuxMount feature gate is enabled, "MountOption" is used.
-    /// If not specified and SELinuxMount feature gate is disabled, "MountOption" is used for ReadWriteOncePod volumes
-    /// and "Recursive" for all other volumes.
+    /// If not specified, "MountOption" is used.
     ///
     /// This field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.
     ///
@@ -7824,6 +8020,15 @@ pub struct PoolerTemplateSpecVolumesConfigMap {
         rename = "defaultMode"
     )]
     pub default_mode: Option<i32>,
+    /// defaultUser is Optional: The owner UID of the created files by default.
+    /// The defaultUser field is only used as a fallback when the item-level user field is unset.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultUser"
+    )]
+    pub default_user: Option<i64>,
     /// items if unspecified, each key-value pair in the Data field of the referenced
     /// ConfigMap will be projected into the volume as a file whose name is the
     /// key and content is the value. If specified, the listed keys will be
@@ -7863,6 +8068,11 @@ pub struct PoolerTemplateSpecVolumesConfigMapItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// csi (Container Storage Interface) represents ephemeral storage that is handled by certain external CSI drivers.
@@ -7934,6 +8144,15 @@ pub struct PoolerTemplateSpecVolumesDownwardApi {
         rename = "defaultMode"
     )]
     pub default_mode: Option<i32>,
+    /// defaultUser is Optional: The owner UID of the created files by default.
+    /// The defaultUser field is only used as a fallback when the item-level user field is unset.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultUser"
+    )]
+    pub default_user: Option<i64>,
     /// Items is a list of downward API volume file
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<PoolerTemplateSpecVolumesDownwardApiItems>>,
@@ -7963,6 +8182,11 @@ pub struct PoolerTemplateSpecVolumesDownwardApiItems {
         rename = "resourceFieldRef"
     )]
     pub resource_field_ref: Option<PoolerTemplateSpecVolumesDownwardApiItemsResourceFieldRef>,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Required: Selects a field of the pod: only annotations, labels, name, namespace and uid are supported.
@@ -8008,6 +8232,16 @@ pub struct PoolerTemplateSpecVolumesEmptyDir {
     /// More info: <https://kubernetes.io/docs/concepts/storage/volumes#emptydir>
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub medium: Option<String>,
+    /// mode specifies the permission bits for the emptyDir directory, in numeric
+    /// notation (e.g., 0755, 01777). Must be a value between 0000 and 01777.
+    /// If not specified, defaults to 0777.
+    /// This might be in conflict with other options that affect the file
+    /// mode, like fsGroup. If fsGroup is specified, the fsGroup permissions
+    /// will override the mode specified here.
+    /// This field has no effect on Windows.
+    /// This field is alpha and requires EmptyDirVolumeMode featuregate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<i32>,
     /// sizeLimit is the total amount of local storage required for this EmptyDir volume.
     /// The size limit is also applicable for memory medium.
     /// The maximum usage on memory medium EmptyDir would be the minimum value between
@@ -8133,8 +8367,8 @@ pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpec {
     /// * An existing PVC (PersistentVolumeClaim)
     /// If the provisioner or an external controller can support the specified data source,
     /// it will create a new volume based on the contents of the specified data source.
-    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+    /// copied to dataSource when dataSourceRef.namespace is not specified.
     /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
     #[serde(
         default,
@@ -8163,7 +8397,6 @@ pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpec {
     ///   specified.
     /// * While dataSource only allows local objects, dataSourceRef allows objects
     ///   in any namespaces.
-    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
     /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
     #[serde(
         default,
@@ -8228,8 +8461,8 @@ pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpec {
 /// * An existing PVC (PersistentVolumeClaim)
 /// If the provisioner or an external controller can support the specified data source,
 /// it will create a new volume based on the contents of the specified data source.
-/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+/// copied to dataSource when dataSourceRef.namespace is not specified.
 /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpecDataSource {
@@ -8265,7 +8498,6 @@ pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpecDataSource {
 ///   specified.
 /// * While dataSource only allows local objects, dataSourceRef allows objects
 ///   in any namespaces.
-/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
 /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct PoolerTemplateSpecVolumesEphemeralVolumeClaimTemplateSpecDataSourceRef {
@@ -8713,6 +8945,15 @@ pub struct PoolerTemplateSpecVolumesProjected {
         rename = "defaultMode"
     )]
     pub default_mode: Option<i32>,
+    /// defaultUser is Optional: The owner UID of the created files by default.
+    /// The defaultUser field is only used as a fallback when the item-level user field is unset.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultUser"
+    )]
+    pub default_user: Option<i64>,
     /// sources is the list of volume projections. Each entry in this list
     /// handles one source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -8852,6 +9093,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesClusterTrustBundle {
         rename = "signerName"
     )]
     pub signer_name: Option<String>,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Select all ClusterTrustBundles that match this label selector.  Only has
@@ -8930,6 +9176,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesConfigMapItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// downwardAPI information about the downwardAPI data to project
@@ -8965,6 +9216,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesDownwardApiItems {
     )]
     pub resource_field_ref:
         Option<PoolerTemplateSpecVolumesProjectedSourcesDownwardApiItemsResourceFieldRef>,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Required: Selects a field of the pod: only annotations, labels, name, namespace and uid are supported.
@@ -9105,6 +9361,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesPodCertificate {
     /// Kubelet's generated CSRs will be addressed to this signer.
     #[serde(rename = "signerName")]
     pub signer_name: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
     /// userAnnotations allow pod authors to pass additional information to
     /// the signer implementation.  Kubernetes does not restrict or validate this
     /// metadata in any way.
@@ -9168,6 +9429,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesSecretItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// serviceAccountToken is information about the serviceAccountToken data to project
@@ -9194,6 +9460,11 @@ pub struct PoolerTemplateSpecVolumesProjectedSourcesServiceAccountToken {
     /// path is the path relative to the mount point of the file to project the
     /// token into.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// quobyte represents a Quobyte mount on the host that shares a pod's lifetime.
@@ -9374,6 +9645,15 @@ pub struct PoolerTemplateSpecVolumesSecret {
         rename = "defaultMode"
     )]
     pub default_mode: Option<i32>,
+    /// defaultUser is Optional: The owner UID of the created files by default.
+    /// The defaultUser field is only used as a fallback when the item-level user field is unset.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultUser"
+    )]
+    pub default_user: Option<i64>,
     /// items If unspecified, each key-value pair in the Data field of the referenced
     /// Secret will be projected into the volume as a file whose name is the
     /// key and content is the value. If specified, the listed keys will be
@@ -9414,6 +9694,11 @@ pub struct PoolerTemplateSpecVolumesSecretItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// storageOS represents a StorageOS volume attached and mounted on Kubernetes nodes.

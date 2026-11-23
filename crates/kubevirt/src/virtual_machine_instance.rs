@@ -43,6 +43,24 @@ pub struct VirtualMachineInstanceSpec {
     pub dns_policy: Option<String>,
     /// Specification of the desired behavior of the VirtualMachineInstance on the host.
     pub domain: VirtualMachineInstanceDomain,
+    /// The most permissive emulation backend this VM may use.
+    /// Takes precedence over spec.configuration.emulationPolicy in the KubeVirt CR.
+    ///
+    /// Valid Options from least to most permissive are:
+    /// - None: Only native-kvm
+    /// - Hardware: Not yet implemented
+    /// - Software: Qemu TCG cross-architecture emulation
+    /// Default policy is 'None'
+    ///
+    /// This is an alpha field and should only be configured if the
+    /// feature-gate CrossArchitectureVirtualization is enabled.
+    /// This feature is in alpha.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "emulationPolicy"
+    )]
+    pub emulation_policy: Option<VirtualMachineInstanceEmulationPolicy>,
     /// EvictionStrategy describes the strategy to follow when a node drain occurs.
     /// The possible options are:
     /// - "None": No action will be taken, according to the specified 'RunStrategy' the VirtualMachine will be restarted or shutdown.
@@ -105,12 +123,8 @@ pub struct VirtualMachineInstanceSpec {
     /// will be made available to the domain which consumes them
     /// by name.
     ///
-    /// This is an alpha field and requires enabling the
-    /// DynamicResourceAllocation feature gate in kubernetes
-    ///  <https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/>
     /// This field should only be configured if one of the feature-gates GPUsWithDRA, HostDevicesWithDRA,
     /// or NetworkDevicesWithDRA is enabled.
-    /// This feature is in alpha.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -174,6 +188,18 @@ pub struct VirtualMachineInstanceSpec {
         rename = "utilityVolumes"
     )]
     pub utility_volumes: Option<Vec<VirtualMachineInstanceUtilityVolumes>>,
+    /// VirtualMachineState references or templates the PVC that backs the
+    /// VirtualMachineState (persistent UEFI, TPM and CBT state).
+    /// When set, it takes precedence over the implicit VirtualMachineState PVC
+    /// creation that happens when persistent TPM/EFI or CBT is enabled, and any
+    /// enabled TPM or EFI feature is treated as persistent unless explicitly
+    /// opted out via Persistent: false.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "virtualMachineState"
+    )]
+    pub virtual_machine_state: Option<VirtualMachineInstanceVirtualMachineState>,
     /// List of volumes that can be mounted by disks belonging to the vmi.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volumes: Option<Vec<VirtualMachineInstanceVolumes>>,
@@ -1354,6 +1380,8 @@ pub struct VirtualMachineInstanceDomainCpuFeatures {
 pub struct VirtualMachineInstanceDomainCpuNuma {
     /// GuestMappingPassthrough will create an efficient guest topology based on host CPUs exclusively assigned to a pod.
     /// The created topology ensures that memory and CPUs on the virtual numa nodes never cross boundaries of host numa nodes.
+    /// It is not supported on a VMI with dedicatedCPUPlacement while the CPUsWithDRA feature gate is enabled, because the
+    /// host CPUs are then assigned by the DRA driver instead of by kubelet's CPU manager.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1365,6 +1393,8 @@ pub struct VirtualMachineInstanceDomainCpuNuma {
 
 /// GuestMappingPassthrough will create an efficient guest topology based on host CPUs exclusively assigned to a pod.
 /// The created topology ensures that memory and CPUs on the virtual numa nodes never cross boundaries of host numa nodes.
+/// It is not supported on a VMI with dedicatedCPUPlacement while the CPUsWithDRA feature gate is enabled, because the
+/// host CPUs are then assigned by the DRA driver instead of by kubelet's CPU manager.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceDomainCpuNumaGuestMappingPassthrough {}
 
@@ -1549,6 +1579,7 @@ pub struct VirtualMachineInstanceDomainDevicesDisks {
     /// none: Guest I/O not cached on the host, but may be kept in a disk cache.
     /// writethrough: Guest I/O cached on the host but written through to the physical medium. Slowest but with most guarantees.
     /// writeback: Guest I/O cached on the host.
+    /// directsync: Guest I/O bypasses the host page cache and is written to the physical medium synchronously.
     /// Defaults to none if the storage supports O_DIRECT, otherwise writethrough.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache: Option<String>,
@@ -2781,6 +2812,14 @@ pub struct VirtualMachineInstanceDomainResources {
     pub requests: Option<BTreeMap<String, IntOrString>>,
 }
 
+/// VirtualMachineInstance Spec contains the VirtualMachineInstance specification.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum VirtualMachineInstanceEmulationPolicy {
+    None,
+    Hardware,
+    Software,
+}
+
 /// Periodic probe of VirtualMachineInstance liveness.
 /// VirtualmachineInstances will be stopped if the probe fails.
 /// Cannot be updated.
@@ -3219,9 +3258,10 @@ pub struct VirtualMachineInstanceTolerations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// Operator represents a key's relationship to the value.
-    /// Valid operators are Exists and Equal. Defaults to Equal.
+    /// Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
     /// Exists is equivalent to wildcard for value, so that a pod can
     /// tolerate all taints of a particular category.
+    /// Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operator: Option<String>,
     /// TolerationSeconds represents the period of time the toleration (which must be
@@ -3430,6 +3470,289 @@ pub struct VirtualMachineInstanceUtilityVolumes {
     pub r#type: Option<String>,
 }
 
+/// VirtualMachineState references or templates the PVC that backs the
+/// VirtualMachineState (persistent UEFI, TPM and CBT state).
+/// When set, it takes precedence over the implicit VirtualMachineState PVC
+/// creation that happens when persistent TPM/EFI or CBT is enabled, and any
+/// enabled TPM or EFI feature is treated as persistent unless explicitly
+/// opted out via Persistent: false.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineState {
+    /// Source is an existing PVC to adopt as the starting VirtualMachineState.
+    /// The controller does not take ownership of a PVC referenced this way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<VirtualMachineInstanceVirtualMachineStateSource>,
+    /// VolumeClaimTemplate is the template the controller uses to create PVCs it
+    /// owns. It is used for the initial PVC when Source is unset, and for every
+    /// new PVC the controller creates later for operations like live migration.
+    /// The controller owns the PVC name via GenerateName, so
+    /// volumeClaimTemplate.metadata.name must not be set. The referenced volume
+    /// mode must be Filesystem.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "volumeClaimTemplate"
+    )]
+    pub volume_claim_template: Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplate>,
+}
+
+/// Source is an existing PVC to adopt as the starting VirtualMachineState.
+/// The controller does not take ownership of a PVC referenced this way.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateSource {
+    /// Name of the source PVC.
+    pub name: String,
+}
+
+/// VolumeClaimTemplate is the template the controller uses to create PVCs it
+/// owns. It is used for the initial PVC when Source is unset, and for every
+/// new PVC the controller creates later for operations like live migration.
+/// The controller owns the PVC name via GenerateName, so
+/// volumeClaimTemplate.metadata.name must not be set. The referenced volume
+/// mode must be Filesystem.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplate {
+    /// May contain labels and annotations that will be copied into the PVC
+    /// when creating it. No other fields are allowed and will be rejected during
+    /// validation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateMetadata>,
+    /// The specification for the PersistentVolumeClaim. The entire content is
+    /// copied unchanged into the PVC that gets created from this
+    /// template. The same fields as in a PersistentVolumeClaim
+    /// are also valid here.
+    pub spec: VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpec,
+}
+
+/// May contain labels and annotations that will be copied into the PVC
+/// when creating it. No other fields are allowed and will be rejected during
+/// validation.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateMetadata {}
+
+/// The specification for the PersistentVolumeClaim. The entire content is
+/// copied unchanged into the PVC that gets created from this
+/// template. The same fields as in a PersistentVolumeClaim
+/// are also valid here.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpec {
+    /// accessModes contains the desired access modes the volume should have.
+    /// More info: <https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1>
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "accessModes"
+    )]
+    pub access_modes: Option<Vec<String>>,
+    /// dataSource field can be used to specify either:
+    /// * An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)
+    /// * An existing PVC (PersistentVolumeClaim)
+    /// If the provisioner or an external controller can support the specified data source,
+    /// it will create a new volume based on the contents of the specified data source.
+    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
+    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "dataSource"
+    )]
+    pub data_source:
+        Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecDataSource>,
+    /// dataSourceRef specifies the object from which to populate the volume with data, if a non-empty
+    /// volume is desired. This may be any object from a non-empty API group (non
+    /// core object) or a PersistentVolumeClaim object.
+    /// When this field is specified, volume binding will only succeed if the type of
+    /// the specified object matches some installed volume populator or dynamic
+    /// provisioner.
+    /// This field will replace the functionality of the dataSource field and as such
+    /// if both fields are non-empty, they must have the same value. For backwards
+    /// compatibility, when namespace isn't specified in dataSourceRef,
+    /// both fields (dataSource and dataSourceRef) will be set to the same
+    /// value automatically if one of them is empty and the other is non-empty.
+    /// When namespace is specified in dataSourceRef,
+    /// dataSource isn't set to the same value and must be empty.
+    /// There are three important differences between dataSource and dataSourceRef:
+    /// * While dataSource only allows two specific types of objects, dataSourceRef
+    ///   allows any non-core object, as well as PersistentVolumeClaim objects.
+    /// * While dataSource ignores disallowed values (dropping them), dataSourceRef
+    ///   preserves all values, and generates an error if a disallowed value is
+    ///   specified.
+    /// * While dataSource only allows local objects, dataSourceRef allows objects
+    ///   in any namespaces.
+    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
+    /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "dataSourceRef"
+    )]
+    pub data_source_ref:
+        Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecDataSourceRef>,
+    /// resources represents the minimum resources the volume should have.
+    /// Users are allowed to specify resource requirements
+    /// that are lower than previous value but must still be higher than capacity recorded in the
+    /// status field of the claim.
+    /// More info: <https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources>
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources:
+        Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecResources>,
+    /// selector is a label query over volumes to consider for binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selector: Option<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecSelector>,
+    /// storageClassName is the name of the StorageClass required by the claim.
+    /// More info: <https://kubernetes.io/docs/concepts/storage/persistent-volumes#class-1>
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "storageClassName"
+    )]
+    pub storage_class_name: Option<String>,
+    /// volumeAttributesClassName may be used to set the VolumeAttributesClass used by this claim.
+    /// If specified, the CSI driver will create or update the volume with the attributes defined
+    /// in the corresponding VolumeAttributesClass. This has a different purpose than storageClassName,
+    /// it can be changed after the claim is created. An empty string or nil value indicates that no
+    /// VolumeAttributesClass will be applied to the claim. If the claim enters an Infeasible error state,
+    /// this field can be reset to its previous value (including nil) to cancel the modification.
+    /// If the resource referred to by volumeAttributesClass does not exist, this PersistentVolumeClaim will be
+    /// set to a Pending state, as reflected by the modifyVolumeStatus field, until such as a resource
+    /// exists.
+    /// More info: <https://kubernetes.io/docs/concepts/storage/volume-attributes-classes/>
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "volumeAttributesClassName"
+    )]
+    pub volume_attributes_class_name: Option<String>,
+    /// volumeMode defines what type of volume is required by the claim.
+    /// Value of Filesystem is implied when not included in claim spec.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "volumeMode"
+    )]
+    pub volume_mode: Option<String>,
+    /// volumeName is the binding reference to the PersistentVolume backing this claim.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "volumeName"
+    )]
+    pub volume_name: Option<String>,
+}
+
+/// dataSource field can be used to specify either:
+/// * An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)
+/// * An existing PVC (PersistentVolumeClaim)
+/// If the provisioner or an external controller can support the specified data source,
+/// it will create a new volume based on the contents of the specified data source.
+/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
+/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecDataSource {
+    /// APIGroup is the group for the resource being referenced.
+    /// If APIGroup is not specified, the specified Kind must be in the core API group.
+    /// For any other third-party types, APIGroup is required.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiGroup")]
+    pub api_group: Option<String>,
+    /// Kind is the type of resource being referenced
+    pub kind: String,
+    /// Name is the name of resource being referenced
+    pub name: String,
+}
+
+/// dataSourceRef specifies the object from which to populate the volume with data, if a non-empty
+/// volume is desired. This may be any object from a non-empty API group (non
+/// core object) or a PersistentVolumeClaim object.
+/// When this field is specified, volume binding will only succeed if the type of
+/// the specified object matches some installed volume populator or dynamic
+/// provisioner.
+/// This field will replace the functionality of the dataSource field and as such
+/// if both fields are non-empty, they must have the same value. For backwards
+/// compatibility, when namespace isn't specified in dataSourceRef,
+/// both fields (dataSource and dataSourceRef) will be set to the same
+/// value automatically if one of them is empty and the other is non-empty.
+/// When namespace is specified in dataSourceRef,
+/// dataSource isn't set to the same value and must be empty.
+/// There are three important differences between dataSource and dataSourceRef:
+/// * While dataSource only allows two specific types of objects, dataSourceRef
+///   allows any non-core object, as well as PersistentVolumeClaim objects.
+/// * While dataSource ignores disallowed values (dropping them), dataSourceRef
+///   preserves all values, and generates an error if a disallowed value is
+///   specified.
+/// * While dataSource only allows local objects, dataSourceRef allows objects
+///   in any namespaces.
+/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
+/// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecDataSourceRef {
+    /// APIGroup is the group for the resource being referenced.
+    /// If APIGroup is not specified, the specified Kind must be in the core API group.
+    /// For any other third-party types, APIGroup is required.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "apiGroup")]
+    pub api_group: Option<String>,
+    /// Kind is the type of resource being referenced
+    pub kind: String,
+    /// Name is the name of resource being referenced
+    pub name: String,
+    /// Namespace is the namespace of resource being referenced
+    /// Note that when a namespace is specified, a gateway.networking.k8s.io/ReferenceGrant object is required in the referent namespace to allow that namespace's owner to accept the reference. See the ReferenceGrant documentation for details.
+    /// (Alpha) This field requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
+/// resources represents the minimum resources the volume should have.
+/// Users are allowed to specify resource requirements
+/// that are lower than previous value but must still be higher than capacity recorded in the
+/// status field of the claim.
+/// More info: <https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources>
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecResources {
+    /// Limits describes the maximum amount of compute resources allowed.
+    /// More info: <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<BTreeMap<String, IntOrString>>,
+    /// Requests describes the minimum amount of compute resources required.
+    /// If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+    /// otherwise to an implementation-defined value. Requests cannot exceed Limits.
+    /// More info: <https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/>
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requests: Option<BTreeMap<String, IntOrString>>,
+}
+
+/// selector is a label query over volumes to consider for binding.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecSelector {
+    /// matchExpressions is a list of label selector requirements. The requirements are ANDed.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "matchExpressions")]
+    pub match_expressions: Option<Vec<VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecSelectorMatchExpressions>>,
+    /// matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+    /// map is equivalent to an element of matchExpressions, whose key field is "key", the
+    /// operator is "In", and the values array contains only "value". The requirements are ANDed.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "matchLabels")]
+    pub match_labels: Option<BTreeMap<String, String>>,
+}
+
+/// A label selector requirement is a selector that contains values, a key, and an operator that
+/// relates the key and values.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceVirtualMachineStateVolumeClaimTemplateSpecSelectorMatchExpressions
+{
+    /// key is the label key that the selector applies to.
+    pub key: String,
+    /// operator represents a key's relationship to a set of values.
+    /// Valid operators are In, NotIn, Exists and DoesNotExist.
+    pub operator: String,
+    /// values is an array of string values. If the operator is In or NotIn,
+    /// the values array must be non-empty. If the operator is Exists or DoesNotExist,
+    /// the values array must be empty. This array is replaced during a strategic
+    /// merge patch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
+}
+
 /// Volume represents a named volume in a vmi.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceVolumes {
@@ -3456,7 +3779,7 @@ pub struct VirtualMachineInstanceVolumes {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "configMap")]
     pub config_map: Option<VirtualMachineInstanceVolumesConfigMap>,
     /// ContainerDisk references a docker image, embedding a qcow or raw disk.
-    /// More info: <https://kubevirt.gitbooks.io/user-guide/registry-disk.html>
+    /// More info: <https://kubevirt.io/user-guide/storage/disks_and_volumes/#containerdisk>
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -3495,7 +3818,7 @@ pub struct VirtualMachineInstanceVolumes {
     )]
     pub downward_metrics: Option<VirtualMachineInstanceVolumesDownwardMetrics>,
     /// EmptyDisk represents a temporary disk which shares the vmis lifecycle.
-    /// More info: <https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html>
+    /// More info: <https://kubevirt.io/user-guide/storage/disks_and_volumes/#emptydisk>
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "emptyDisk")]
     pub empty_disk: Option<VirtualMachineInstanceVolumesEmptyDisk>,
     /// Ephemeral is a special volume source that "wraps" specified source and provides copy-on-write image on top of it.
@@ -3505,6 +3828,7 @@ pub struct VirtualMachineInstanceVolumes {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "hostDisk")]
     pub host_disk: Option<VirtualMachineInstanceVolumesHostDisk>,
     /// MemoryDump is attached to the virt launcher and is populated with a memory dump of the vmi
+    /// Deprecated: memory dumps are attached as utility volumes of type MemoryDump.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -3700,7 +4024,7 @@ pub struct VirtualMachineInstanceVolumesConfigMap {
 }
 
 /// ContainerDisk references a docker image, embedding a qcow or raw disk.
-/// More info: <https://kubevirt.gitbooks.io/user-guide/registry-disk.html>
+/// More info: <https://kubevirt.io/user-guide/storage/disks_and_volumes/#containerdisk>
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceVolumesContainerDisk {
     /// Image is the name of the image with the embedded disk.
@@ -3834,7 +4158,7 @@ pub struct VirtualMachineInstanceVolumesDownwardApiFieldsResourceFieldRef {
 pub struct VirtualMachineInstanceVolumesDownwardMetrics {}
 
 /// EmptyDisk represents a temporary disk which shares the vmis lifecycle.
-/// More info: <https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html>
+/// More info: <https://kubevirt.io/user-guide/storage/disks_and_volumes/#emptydisk>
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceVolumesEmptyDisk {
     /// Capacity of the sparse disk.
@@ -3889,6 +4213,7 @@ pub struct VirtualMachineInstanceVolumesHostDisk {
 }
 
 /// MemoryDump is attached to the virt launcher and is populated with a memory dump of the vmi
+/// Deprecated: memory dumps are attached as utility volumes of type MemoryDump.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceVolumesMemoryDump {
     /// claimName is the name of a PersistentVolumeClaim in the same namespace as the pod using this volume.
@@ -4143,6 +4468,14 @@ pub struct VirtualMachineInstanceStatus {
         rename = "selinuxContext"
     )]
     pub selinux_context: Option<String>,
+    /// SnapshotOverlayPVCUID identifies the scratch PVC verified for the
+    /// OverlaySnapshotActive condition. Updated together with that condition.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "snapshotOverlayPVCUID"
+    )]
+    pub snapshot_overlay_pvcuid: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -4157,6 +4490,16 @@ pub struct VirtualMachineInstanceStatus {
         rename = "virtualMachineRevisionName"
     )]
     pub virtual_machine_revision_name: Option<String>,
+    /// VirtualMachineStateVolume tracks the live VirtualMachineState PVC
+    /// (persistent UEFI, TPM and CBT state). It is the source of truth for the
+    /// PVC name, which may differ from the referenced source after a migration.
+    /// It is populated for both the declarative and the implicit paths.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "virtualMachineStateVolume"
+    )]
+    pub virtual_machine_state_volume: Option<VirtualMachineInstanceStatusVirtualMachineStateVolume>,
     /// VolumeStatus contains the statuses of all the volumes
     #[serde(
         default,
@@ -4233,26 +4576,12 @@ pub struct VirtualMachineInstanceStatusChangedBlockTrackingBackupStatus {
     pub volumes: Option<Vec<VirtualMachineInstanceStatusChangedBlockTrackingBackupStatusVolumes>>,
 }
 
-/// BackupVolumeInfo contains information about a volume included in a backup
+/// VirtualMachineInstanceBackupVolumeInfo contains information about a volume included in a backup
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusChangedBlockTrackingBackupStatusVolumes {
-    /// DataEndpoint is the URL of the endpoint for read for pull mode
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "dataEndpoint"
-    )]
-    pub data_endpoint: Option<String>,
-    /// DiskTarget is the disk target device name at backup time
-    #[serde(rename = "diskTarget")]
-    pub disk_target: String,
-    /// MapEndpoint is the URL of the endpoint for map for pull mode
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "mapEndpoint"
-    )]
-    pub map_endpoint: Option<String>,
+    /// Type is how the volume was backed up, either Full or Incremental.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "type")]
+    pub r#type: Option<String>,
     /// VolumeName is the volume name from VMI spec
     #[serde(rename = "volumeName")]
     pub volume_name: String,
@@ -4343,7 +4672,7 @@ pub struct VirtualMachineInstanceStatusGuestOsInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusInterfaces {
-    /// Specifies the origin of the interface data collected. values: domain, guest-agent, multus-status.
+    /// Specifies the origin of the interface data collected. values: domain, guest-agent, multus-status, pod-status.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -4415,7 +4744,7 @@ pub struct VirtualMachineInstanceStatusKernelBootStatus {
 /// InitrdInfo show info about the initrd file
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusKernelBootStatusInitrdInfo {
-    /// Checksum is the checksum of the initrd file
+    /// deprecated; Checksum is the checksum of the initrd file
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checksum: Option<i64>,
 }
@@ -4423,7 +4752,7 @@ pub struct VirtualMachineInstanceStatusKernelBootStatusInitrdInfo {
 /// KernelInfo show info about the kernel image
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusKernelBootStatusKernelInfo {
-    /// Checksum is the checksum of the kernel image
+    /// deprecated; Checksum is the checksum of the kernel image
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checksum: Option<i64>,
 }
@@ -4804,8 +5133,12 @@ pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfiguration {
         rename = "completionTimeoutPerGiB"
     )]
     pub completion_timeout_per_gi_b: Option<i64>,
-    /// When set to true, DisableTLS will disable the additional layer of live migration encryption
-    /// provided by KubeVirt. This is usually a bad idea. Defaults to false
+    /// DisableTLS disables both TLS encryption and mutual TLS authentication
+    /// on the migration proxy when set to true. This removes all cryptographic
+    /// protection from the migration data stream.
+    /// When disabled, implement network-level access controls to restrict
+    /// migration traffic to trusted sources only.
+    /// Defaults to false.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -4902,6 +5235,16 @@ pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExper
     pub compression: Option<
         VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalCompression,
     >,
+    /// DowntimeTuning configures iteration-aware downtime ramping for live
+    /// migration convergence.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "downtimeTuning"
+    )]
+    pub downtime_tuning: Option<
+        VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalDowntimeTuning,
+    >,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -4922,44 +5265,76 @@ pub enum VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperim
     Zstd,
 }
 
+/// DowntimeTuning configures iteration-aware downtime ramping for live
+/// migration convergence.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalDowntimeTuning
+{
+    /// CooldownSeconds is the minimum interval in seconds
+    /// between successive downtime increases. Defaults to 10.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cooldownSeconds"
+    )]
+    pub cooldown_seconds: Option<i32>,
+    /// InitialMs is the initial max_downtime value in milliseconds
+    /// set at the start of migration. Tuning steps increase from this value.
+    /// Defaults to 150.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "initialMs")]
+    pub initial_ms: Option<i64>,
+    /// StartAfterIteration is the memory copy iteration after which
+    /// downtime tuning begins. Defaults to 3.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "startAfterIteration"
+    )]
+    pub start_after_iteration: Option<i64>,
+    /// Steps is the number of equal increments used to ramp from
+    /// InitialMs to the cluster-level MaxDowntimeMs. Defaults to 7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<i32>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusMigrationStateMigrationConfigurationExperimentalStallDetector
 {
     /// CompletionTimeoutFactor multiplies the computed migration completion timeout to determine
     /// the total time budget for deciding whether a forced switchover can still finish in time,
     /// and to extend the abort deadline after initiating a completion-timeout-driven switchover.
-    /// Defaults to "2".
+    /// Defaults to 2.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "completionTimeoutFactor"
     )]
-    pub completion_timeout_factor: Option<String>,
+    pub completion_timeout_factor: Option<IntOrString>,
     /// EwmaAlpha is the smoothing factor for the exponentially weighted moving average of
     /// observed migration bandwidth. Must be in the range (0, 1]; zero is invalid because
     /// the estimate would never incorporate new samples. Higher values weight recent samples
     /// more heavily.
-    /// Defaults to "0.4".
+    /// Defaults to 0.4.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "ewmaAlpha")]
-    pub ewma_alpha: Option<String>,
+    pub ewma_alpha: Option<IntOrString>,
     /// PatienceWindowDecayFactor is the factor by which the relaxation patience window is
     /// multiplied after each best-remaining-bytes relaxation step.
-    /// Defaults to "0.5".
+    /// Defaults to 0.5.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "patienceWindowDecayFactor"
     )]
-    pub patience_window_decay_factor: Option<String>,
+    pub patience_window_decay_factor: Option<IntOrString>,
     /// PrecopyPossibleFactor is the maximum factor by which estimated downtime may exceed
     /// MaxDowntime while still attempting a soft stop-and-copy instead of aborting the migration.
-    /// Defaults to "1.5".
+    /// Defaults to 1.5.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         rename = "precopyPossibleFactor"
     )]
-    pub precopy_possible_factor: Option<String>,
+    pub precopy_possible_factor: Option<IntOrString>,
     /// SearchLocalMinima controls whether convergence actions are delayed until remaining bytes
     /// reach a local minimum near the best observed value. When false, actions may trigger
     /// as soon as a stall is detected.
@@ -5200,6 +5575,157 @@ pub struct VirtualMachineInstanceStatusTopologyHints {
     pub tsc_frequency: Option<i64>,
 }
 
+/// VirtualMachineStateVolume tracks the live VirtualMachineState PVC
+/// (persistent UEFI, TPM and CBT state). It is the source of truth for the
+/// PVC name, which may differ from the referenced source after a migration.
+/// It is populated for both the declarative and the implicit paths.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusVirtualMachineStateVolume {
+    /// ContainerDiskVolume shows info about the containerdisk, if the volume is a containerdisk
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "containerDiskVolume"
+    )]
+    pub container_disk_volume:
+        Option<VirtualMachineInstanceStatusVirtualMachineStateVolumeContainerDiskVolume>,
+    /// If the volume is hotplug, this will contain the hotplug status.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "hotplugVolume"
+    )]
+    pub hotplug_volume: Option<VirtualMachineInstanceStatusVirtualMachineStateVolumeHotplugVolume>,
+    /// If the volume is memorydump volume, this will contain the memorydump info.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "memoryDumpVolume"
+    )]
+    pub memory_dump_volume:
+        Option<VirtualMachineInstanceStatusVirtualMachineStateVolumeMemoryDumpVolume>,
+    /// Message is a detailed message about the current hotplug volume phase
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Name is the name of the volume
+    pub name: String,
+    /// PersistentVolumeClaimInfo is information about the PVC that handler requires during start flow
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "persistentVolumeClaimInfo"
+    )]
+    pub persistent_volume_claim_info:
+        Option<VirtualMachineInstanceStatusVirtualMachineStateVolumePersistentVolumeClaimInfo>,
+    /// Phase is the phase
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    /// Reason is a brief description of why we are in the current hotplug volume phase
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Represents the size of the volume
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    /// Target is the target name used when adding the volume to the VM, eg: vda
+    pub target: String,
+}
+
+/// ContainerDiskVolume shows info about the containerdisk, if the volume is a containerdisk
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusVirtualMachineStateVolumeContainerDiskVolume {
+    /// deprecated; Checksum is the checksum of the rootdisk or kernel artifacts inside the containerdisk
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<i64>,
+}
+
+/// If the volume is hotplug, this will contain the hotplug status.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusVirtualMachineStateVolumeHotplugVolume {
+    /// AttachPodName is the name of the pod used to attach the volume to the node.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "attachPodName"
+    )]
+    pub attach_pod_name: Option<String>,
+    /// AttachPodUID is the UID of the pod used to attach the volume to the node.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "attachPodUID"
+    )]
+    pub attach_pod_uid: Option<String>,
+}
+
+/// If the volume is memorydump volume, this will contain the memorydump info.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusVirtualMachineStateVolumeMemoryDumpVolume {
+    /// ClaimName is the name of the pvc the memory was dumped to
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
+    pub claim_name: Option<String>,
+    /// EndTimestamp is the time when the memory dump completed
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "endTimestamp"
+    )]
+    pub end_timestamp: Option<String>,
+    /// StartTimestamp is the time when the memory dump started
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "startTimestamp"
+    )]
+    pub start_timestamp: Option<String>,
+    /// TargetFileName is the name of the memory dump output
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "targetFileName"
+    )]
+    pub target_file_name: Option<String>,
+}
+
+/// PersistentVolumeClaimInfo is information about the PVC that handler requires during start flow
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct VirtualMachineInstanceStatusVirtualMachineStateVolumePersistentVolumeClaimInfo {
+    /// AccessModes contains the desired access modes the volume should have.
+    /// More info: <https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1>
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "accessModes"
+    )]
+    pub access_modes: Option<Vec<String>>,
+    /// Capacity represents the capacity set on the corresponding PVC status
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity: Option<BTreeMap<String, IntOrString>>,
+    /// ClaimName is the name of the PVC
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "claimName")]
+    pub claim_name: Option<String>,
+    /// Percentage of filesystem's size to be reserved when resizing the PVC
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "filesystemOverhead"
+    )]
+    pub filesystem_overhead: Option<String>,
+    /// Preallocated indicates if the PVC's storage is preallocated or not
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preallocated: Option<bool>,
+    /// Requests represents the resources requested by the corresponding PVC spec
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requests: Option<BTreeMap<String, IntOrString>>,
+    /// VolumeMode defines what type of volume is required by the claim.
+    /// Value of Filesystem is implied when not included in claim spec.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "volumeMode"
+    )]
+    pub volume_mode: Option<String>,
+}
+
 /// VolumeStatus represents information about the status of volumes attached to the VirtualMachineInstance.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusVolumeStatus {
@@ -5253,7 +5779,7 @@ pub struct VirtualMachineInstanceStatusVolumeStatus {
 /// ContainerDiskVolume shows info about the containerdisk, if the volume is a containerdisk
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct VirtualMachineInstanceStatusVolumeStatusContainerDiskVolume {
-    /// Checksum is the checksum of the rootdisk or kernel artifacts inside the containerdisk
+    /// deprecated; Checksum is the checksum of the rootdisk or kernel artifacts inside the containerdisk
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checksum: Option<i64>,
 }

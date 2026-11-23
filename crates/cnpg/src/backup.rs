@@ -483,6 +483,19 @@ pub struct BackupStatusS3Credentials {
         rename = "sessionToken"
     )]
     pub session_token: Option<BackupStatusS3CredentialsSessionToken>,
+    /// Reference to the secret holding the key for Server-Side Encryption with
+    /// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+    /// barman-cloud uses it to encrypt the objects it uploads and to read them
+    /// back. Meant for S3-compatible providers that only support SSE-C
+    /// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+    /// Works with any authentication method. Changing the key makes the
+    /// existing objects unreadable: use a new `destinationPath` or `serverName`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sseCustomerKey"
+    )]
+    pub sse_customer_key: Option<BackupStatusS3CredentialsSseCustomerKey>,
 }
 
 /// The reference to the access key id
@@ -515,6 +528,21 @@ pub struct BackupStatusS3CredentialsSecretAccessKey {
 /// The references to the session key
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct BackupStatusS3CredentialsSessionToken {
+    /// The key to select
+    pub key: String,
+    /// Name of the referent.
+    pub name: String,
+}
+
+/// Reference to the secret holding the key for Server-Side Encryption with
+/// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+/// barman-cloud uses it to encrypt the objects it uploads and to read them
+/// back. Meant for S3-compatible providers that only support SSE-C
+/// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+/// Works with any authentication method. Changing the key makes the
+/// existing objects unreadable: use a new `destinationPath` or `serverName`.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct BackupStatusS3CredentialsSseCustomerKey {
     /// The key to select
     pub key: String,
     /// Name of the referent.

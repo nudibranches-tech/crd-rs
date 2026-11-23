@@ -90,6 +90,15 @@ pub struct ObjectStoreConfiguration {
         rename = "historyTags"
     )]
     pub history_tags: Option<BTreeMap<String, String>>,
+    /// How bucket names appear in S3 requests: `virtual` (bucket.endpoint/key),
+    /// `path` (endpoint/bucket/key) or `auto` (boto3 decides, same as unset).
+    /// Requires s3Credentials and Barman 3.18 or later.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "s3AddressingStyle"
+    )]
+    pub s3_addressing_style: Option<ObjectStoreConfigurationS3AddressingStyle>,
     /// The credentials to use to upload data to S3
     #[serde(
         default,
@@ -232,7 +241,7 @@ pub struct ObjectStoreConfigurationData {
     pub additional_command_args: Option<Vec<String>>,
     /// Compress a backup file (a tar file per tablespace) while streaming it
     /// to the object store. Available options are empty string (no
-    /// compression, default), `gzip`, `bzip2`, and `snappy`.
+    /// compression, default), `gzip`, `bzip2`, `lz4`, `snappy`, and `zstd`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<ObjectStoreConfigurationDataCompression>,
     /// Whenever to force the encryption of files (if the bucket is
@@ -256,6 +265,26 @@ pub struct ObjectStoreConfigurationData {
     /// to 2
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jobs: Option<i32>,
+    /// Additional arguments that can be appended to the 'barman-cloud-restore'
+    /// command-line invocation. These arguments provide flexibility to customize
+    /// the data restore process further, according to specific requirements or
+    /// configurations.
+    ///
+    /// Example:
+    /// In a scenario where specialized restore options are required, such as setting
+    /// a specific read timeout or defining custom behavior, users can use this field
+    /// to specify additional command arguments.
+    ///
+    /// Note:
+    /// It's essential to ensure that the provided arguments are valid and supported
+    /// by the 'barman-cloud-restore' command, to avoid potential errors or unintended
+    /// behavior during execution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "restoreAdditionalCommandArgs"
+    )]
+    pub restore_additional_command_args: Option<Vec<String>>,
 }
 
 /// The configuration to be used to backup the data files
@@ -268,8 +297,12 @@ pub enum ObjectStoreConfigurationDataCompression {
     Bzip2,
     #[serde(rename = "gzip")]
     Gzip,
+    #[serde(rename = "lz4")]
+    Lz4,
     #[serde(rename = "snappy")]
     Snappy,
+    #[serde(rename = "zstd")]
+    Zstd,
 }
 
 /// The configuration to be used to backup the data files
@@ -325,6 +358,17 @@ pub struct ObjectStoreConfigurationGoogleCredentialsApplicationCredentials {
     pub name: String,
 }
 
+/// The configuration for the barman-cloud tool suite
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum ObjectStoreConfigurationS3AddressingStyle {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "virtual")]
+    Virtual,
+    #[serde(rename = "path")]
+    Path,
+}
+
 /// The credentials to use to upload data to S3
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ObjectStoreConfigurationS3Credentials {
@@ -359,6 +403,19 @@ pub struct ObjectStoreConfigurationS3Credentials {
         rename = "sessionToken"
     )]
     pub session_token: Option<ObjectStoreConfigurationS3CredentialsSessionToken>,
+    /// Reference to the secret holding the key for Server-Side Encryption with
+    /// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+    /// barman-cloud uses it to encrypt the objects it uploads and to read them
+    /// back. Meant for S3-compatible providers that only support SSE-C
+    /// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+    /// Works with any authentication method. Changing the key makes the
+    /// existing objects unreadable: use a new `destinationPath` or `serverName`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sseCustomerKey"
+    )]
+    pub sse_customer_key: Option<ObjectStoreConfigurationS3CredentialsSseCustomerKey>,
 }
 
 /// The reference to the access key id
@@ -391,6 +448,21 @@ pub struct ObjectStoreConfigurationS3CredentialsSecretAccessKey {
 /// The references to the session key
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ObjectStoreConfigurationS3CredentialsSessionToken {
+    /// The key to select
+    pub key: String,
+    /// Name of the referent.
+    pub name: String,
+}
+
+/// Reference to the secret holding the key for Server-Side Encryption with
+/// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+/// barman-cloud uses it to encrypt the objects it uploads and to read them
+/// back. Meant for S3-compatible providers that only support SSE-C
+/// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+/// Works with any authentication method. Changing the key makes the
+/// existing objects unreadable: use a new `destinationPath` or `serverName`.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ObjectStoreConfigurationS3CredentialsSseCustomerKey {
     /// The key to select
     pub key: String,
     /// Name of the referent.
@@ -592,7 +664,8 @@ pub struct ObjectStoreInstanceSidecarConfigurationEnvValueFrom {
 /// Selects a key of a ConfigMap.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ObjectStoreInstanceSidecarConfigurationEnvValueFromConfigMapKeyRef {
-    /// The key to select.
+    /// The key to select from the ConfigMap's Data field.
+    /// Keys in the BinaryData field are not currently propagated to container env vars.
     pub key: String,
     /// Name of the referent.
     /// This field is effectively required, but due to backwards compatibility is

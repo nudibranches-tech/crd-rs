@@ -59,6 +59,10 @@ pub struct CiliumEgressGatewayPolicyEgressGateway {
     /// redirected to the node matching the NodeSelector field and SNATed
     /// with IP address 192.168.1.100.
     ///
+    /// When set to "2001:db8::1", matching egress traffic will be
+    /// redirected to the node matching the NodeSelector field and SNATed
+    /// with IPv6 address 2001:db8::1.
+    ///
     /// When none of the Interface or EgressIP fields is specified, the
     /// policy will use the first IPv4 assigned to the interface with the
     /// default route.
@@ -152,6 +156,10 @@ pub struct CiliumEgressGatewayPolicyEgressGateways {
     /// When set to "192.168.1.100", matching egress traffic will be
     /// redirected to the node matching the NodeSelector field and SNATed
     /// with IP address 192.168.1.100.
+    ///
+    /// When set to "2001:db8::1", matching egress traffic will be
+    /// redirected to the node matching the NodeSelector field and SNATed
+    /// with IPv6 address 2001:db8::1.
     ///
     /// When none of the Interface or EgressIP fields is specified, the
     /// policy will use the first IPv4 assigned to the interface with the

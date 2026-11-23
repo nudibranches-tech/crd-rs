@@ -1320,6 +1320,15 @@ pub struct ClusterBackupBarmanObjectStore {
         rename = "historyTags"
     )]
     pub history_tags: Option<BTreeMap<String, String>>,
+    /// How bucket names appear in S3 requests: `virtual` (bucket.endpoint/key),
+    /// `path` (endpoint/bucket/key) or `auto` (boto3 decides, same as unset).
+    /// Requires s3Credentials and Barman 3.18 or later.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "s3AddressingStyle"
+    )]
+    pub s3_addressing_style: Option<ClusterBackupBarmanObjectStoreS3AddressingStyle>,
     /// The credentials to use to upload data to S3
     #[serde(
         default,
@@ -1462,7 +1471,7 @@ pub struct ClusterBackupBarmanObjectStoreData {
     pub additional_command_args: Option<Vec<String>>,
     /// Compress a backup file (a tar file per tablespace) while streaming it
     /// to the object store. Available options are empty string (no
-    /// compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
+    /// compression, default), `gzip`, `bzip2`, `lz4`, `snappy`, and `zstd`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<ClusterBackupBarmanObjectStoreDataCompression>,
     /// Whenever to force the encryption of files (if the bucket is
@@ -1486,6 +1495,26 @@ pub struct ClusterBackupBarmanObjectStoreData {
     /// to 2
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jobs: Option<i32>,
+    /// Additional arguments that can be appended to the 'barman-cloud-restore'
+    /// command-line invocation. These arguments provide flexibility to customize
+    /// the data restore process further, according to specific requirements or
+    /// configurations.
+    ///
+    /// Example:
+    /// In a scenario where specialized restore options are required, such as setting
+    /// a specific read timeout or defining custom behavior, users can use this field
+    /// to specify additional command arguments.
+    ///
+    /// Note:
+    /// It's essential to ensure that the provided arguments are valid and supported
+    /// by the 'barman-cloud-restore' command, to avoid potential errors or unintended
+    /// behavior during execution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "restoreAdditionalCommandArgs"
+    )]
+    pub restore_additional_command_args: Option<Vec<String>>,
 }
 
 /// The configuration to be used to backup the data files
@@ -1502,6 +1531,8 @@ pub enum ClusterBackupBarmanObjectStoreDataCompression {
     Lz4,
     #[serde(rename = "snappy")]
     Snappy,
+    #[serde(rename = "zstd")]
+    Zstd,
 }
 
 /// The configuration to be used to backup the data files
@@ -1557,6 +1588,17 @@ pub struct ClusterBackupBarmanObjectStoreGoogleCredentialsApplicationCredentials
     pub name: String,
 }
 
+/// The configuration for the barman-cloud tool suite
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum ClusterBackupBarmanObjectStoreS3AddressingStyle {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "virtual")]
+    Virtual,
+    #[serde(rename = "path")]
+    Path,
+}
+
 /// The credentials to use to upload data to S3
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterBackupBarmanObjectStoreS3Credentials {
@@ -1591,6 +1633,19 @@ pub struct ClusterBackupBarmanObjectStoreS3Credentials {
         rename = "sessionToken"
     )]
     pub session_token: Option<ClusterBackupBarmanObjectStoreS3CredentialsSessionToken>,
+    /// Reference to the secret holding the key for Server-Side Encryption with
+    /// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+    /// barman-cloud uses it to encrypt the objects it uploads and to read them
+    /// back. Meant for S3-compatible providers that only support SSE-C
+    /// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+    /// Works with any authentication method. Changing the key makes the
+    /// existing objects unreadable: use a new `destinationPath` or `serverName`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sseCustomerKey"
+    )]
+    pub sse_customer_key: Option<ClusterBackupBarmanObjectStoreS3CredentialsSseCustomerKey>,
 }
 
 /// The reference to the access key id
@@ -1623,6 +1678,21 @@ pub struct ClusterBackupBarmanObjectStoreS3CredentialsSecretAccessKey {
 /// The references to the session key
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterBackupBarmanObjectStoreS3CredentialsSessionToken {
+    /// The key to select
+    pub key: String,
+    /// Name of the referent.
+    pub name: String,
+}
+
+/// Reference to the secret holding the key for Server-Side Encryption with
+/// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+/// barman-cloud uses it to encrypt the objects it uploads and to read them
+/// back. Meant for S3-compatible providers that only support SSE-C
+/// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+/// Works with any authentication method. Changing the key makes the
+/// existing objects unreadable: use a new `destinationPath` or `serverName`.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterBackupBarmanObjectStoreS3CredentialsSseCustomerKey {
     /// The key to select
     pub key: String,
     /// Name of the referent.
@@ -1853,8 +1923,10 @@ pub struct ClusterBootstrapInitdb {
         rename = "builtinLocale"
     )]
     pub builtin_locale: Option<String>,
-    /// Whether the `-k` option should be passed to initdb,
-    /// enabling checksums on data pages (default: `false`)
+    /// Whether data checksums are enabled on data pages, to help detect
+    /// corruption by the I/O system that would otherwise be silent
+    /// (default: `false` before PostgreSQL 18, `true` from PostgreSQL 18 on,
+    /// matching the initdb default in each case).
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -2628,7 +2700,8 @@ pub struct ClusterEnvValueFrom {
 /// Selects a key of a ConfigMap.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterEnvValueFromConfigMapKeyRef {
-    /// The key to select.
+    /// The key to select from the ConfigMap's Data field.
+    /// Keys in the BinaryData field are not currently propagated to container env vars.
     pub key: String,
     /// Name of the referent.
     /// This field is effectively required, but due to backwards compatibility is
@@ -2859,8 +2932,8 @@ pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpec {
     /// * An existing PVC (PersistentVolumeClaim)
     /// If the provisioner or an external controller can support the specified data source,
     /// it will create a new volume based on the contents of the specified data source.
-    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+    /// copied to dataSource when dataSourceRef.namespace is not specified.
     /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
     #[serde(
         default,
@@ -2889,7 +2962,6 @@ pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpec {
     ///   specified.
     /// * While dataSource only allows local objects, dataSourceRef allows objects
     ///   in any namespaces.
-    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
     /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
     #[serde(
         default,
@@ -2953,8 +3025,8 @@ pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpec {
 /// * An existing PVC (PersistentVolumeClaim)
 /// If the provisioner or an external controller can support the specified data source,
 /// it will create a new volume based on the contents of the specified data source.
-/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+/// copied to dataSource when dataSourceRef.namespace is not specified.
 /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpecDataSource {
@@ -2990,7 +3062,6 @@ pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpecDataSource {
 ///   specified.
 /// * While dataSource only allows local objects, dataSourceRef allows objects
 ///   in any namespaces.
-/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
 /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterEphemeralVolumeSourceVolumeClaimTemplateSpecDataSourceRef {
@@ -3188,6 +3259,15 @@ pub struct ClusterExternalClustersBarmanObjectStore {
         rename = "historyTags"
     )]
     pub history_tags: Option<BTreeMap<String, String>>,
+    /// How bucket names appear in S3 requests: `virtual` (bucket.endpoint/key),
+    /// `path` (endpoint/bucket/key) or `auto` (boto3 decides, same as unset).
+    /// Requires s3Credentials and Barman 3.18 or later.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "s3AddressingStyle"
+    )]
+    pub s3_addressing_style: Option<ClusterExternalClustersBarmanObjectStoreS3AddressingStyle>,
     /// The credentials to use to upload data to S3
     #[serde(
         default,
@@ -3333,7 +3413,7 @@ pub struct ClusterExternalClustersBarmanObjectStoreData {
     pub additional_command_args: Option<Vec<String>>,
     /// Compress a backup file (a tar file per tablespace) while streaming it
     /// to the object store. Available options are empty string (no
-    /// compression, default), `gzip`, `bzip2`, `lz4`, and `snappy`.
+    /// compression, default), `gzip`, `bzip2`, `lz4`, `snappy`, and `zstd`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression: Option<ClusterExternalClustersBarmanObjectStoreDataCompression>,
     /// Whenever to force the encryption of files (if the bucket is
@@ -3357,6 +3437,26 @@ pub struct ClusterExternalClustersBarmanObjectStoreData {
     /// to 2
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jobs: Option<i32>,
+    /// Additional arguments that can be appended to the 'barman-cloud-restore'
+    /// command-line invocation. These arguments provide flexibility to customize
+    /// the data restore process further, according to specific requirements or
+    /// configurations.
+    ///
+    /// Example:
+    /// In a scenario where specialized restore options are required, such as setting
+    /// a specific read timeout or defining custom behavior, users can use this field
+    /// to specify additional command arguments.
+    ///
+    /// Note:
+    /// It's essential to ensure that the provided arguments are valid and supported
+    /// by the 'barman-cloud-restore' command, to avoid potential errors or unintended
+    /// behavior during execution.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "restoreAdditionalCommandArgs"
+    )]
+    pub restore_additional_command_args: Option<Vec<String>>,
 }
 
 /// The configuration to be used to backup the data files
@@ -3373,6 +3473,8 @@ pub enum ClusterExternalClustersBarmanObjectStoreDataCompression {
     Lz4,
     #[serde(rename = "snappy")]
     Snappy,
+    #[serde(rename = "zstd")]
+    Zstd,
 }
 
 /// The configuration to be used to backup the data files
@@ -3428,6 +3530,17 @@ pub struct ClusterExternalClustersBarmanObjectStoreGoogleCredentialsApplicationC
     pub name: String,
 }
 
+/// The configuration for the barman-cloud tool suite
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum ClusterExternalClustersBarmanObjectStoreS3AddressingStyle {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "virtual")]
+    Virtual,
+    #[serde(rename = "path")]
+    Path,
+}
+
 /// The credentials to use to upload data to S3
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterExternalClustersBarmanObjectStoreS3Credentials {
@@ -3463,6 +3576,20 @@ pub struct ClusterExternalClustersBarmanObjectStoreS3Credentials {
         rename = "sessionToken"
     )]
     pub session_token: Option<ClusterExternalClustersBarmanObjectStoreS3CredentialsSessionToken>,
+    /// Reference to the secret holding the key for Server-Side Encryption with
+    /// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+    /// barman-cloud uses it to encrypt the objects it uploads and to read them
+    /// back. Meant for S3-compatible providers that only support SSE-C
+    /// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+    /// Works with any authentication method. Changing the key makes the
+    /// existing objects unreadable: use a new `destinationPath` or `serverName`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sseCustomerKey"
+    )]
+    pub sse_customer_key:
+        Option<ClusterExternalClustersBarmanObjectStoreS3CredentialsSseCustomerKey>,
 }
 
 /// The reference to the access key id
@@ -3495,6 +3622,21 @@ pub struct ClusterExternalClustersBarmanObjectStoreS3CredentialsSecretAccessKey 
 /// The references to the session key
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterExternalClustersBarmanObjectStoreS3CredentialsSessionToken {
+    /// The key to select
+    pub key: String,
+    /// Name of the referent.
+    pub name: String,
+}
+
+/// Reference to the secret holding the key for Server-Side Encryption with
+/// Customer-provided keys (SSE-C): a base64-encoded 256-bit AES key.
+/// barman-cloud uses it to encrypt the objects it uploads and to read them
+/// back. Meant for S3-compatible providers that only support SSE-C
+/// (e.g. Hetzner Object Storage). Cannot be combined with `encryption`.
+/// Works with any authentication method. Changing the key makes the
+/// existing objects unreadable: use a new `destinationPath` or `serverName`.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClusterExternalClustersBarmanObjectStoreS3CredentialsSseCustomerKey {
     /// The key to select
     pub key: String,
     /// Name of the referent.
@@ -4767,11 +4909,8 @@ pub struct ClusterPodSecurityContext {
     /// Eligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes
     /// whose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their
     /// CSIDriver instance. Other volumes are always re-labelled recursively.
-    /// "MountOption" value is allowed only when SELinuxMount feature gate is enabled.
     ///
-    /// If not specified and SELinuxMount feature gate is enabled, "MountOption" is used.
-    /// If not specified and SELinuxMount feature gate is disabled, "MountOption" is used for ReadWriteOncePod volumes
-    /// and "Recursive" for all other volumes.
+    /// If not specified, "MountOption" is used.
     ///
     /// This field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.
     ///
@@ -5452,10 +5591,12 @@ pub struct ClusterProbesLiveness {
     )]
     pub initial_delay_seconds: Option<i32>,
     /// Configure the feature that extends the liveness probe for a primary
-    /// instance. In addition to the basic checks, this verifies whether the
+    /// instance. In addition to the basic checks, this reports whether the
     /// primary is isolated from the Kubernetes API server and from its
-    /// replicas, ensuring that it can be safely shut down if network
-    /// partition or API unavailability is detected. Enabled by default.
+    /// replicas, so the kubelet restarts it through the normal
+    /// container-termination path (a smart shutdown, bounded by
+    /// `.spec.smartShutdownTimeout`) when a network partition or API
+    /// unavailability is detected. Enabled by default.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -5506,10 +5647,12 @@ pub struct ClusterProbesLiveness {
 }
 
 /// Configure the feature that extends the liveness probe for a primary
-/// instance. In addition to the basic checks, this verifies whether the
+/// instance. In addition to the basic checks, this reports whether the
 /// primary is isolated from the Kubernetes API server and from its
-/// replicas, ensuring that it can be safely shut down if network
-/// partition or API unavailability is detected. Enabled by default.
+/// replicas, so the kubelet restarts it through the normal
+/// container-termination path (a smart shutdown, bounded by
+/// `.spec.smartShutdownTimeout`) when a network partition or API
+/// unavailability is detected. Enabled by default.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterProbesLivenessIsolationCheck {
     /// Timeout in milliseconds for connections during the primary isolation check
@@ -5713,6 +5856,15 @@ pub struct ClusterProjectedVolumeTemplate {
         rename = "defaultMode"
     )]
     pub default_mode: Option<i32>,
+    /// defaultUser is Optional: The owner UID of the created files by default.
+    /// The defaultUser field is only used as a fallback when the item-level user field is unset.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultUser"
+    )]
+    pub default_user: Option<i64>,
     /// sources is the list of volume projections. Each entry in this list
     /// handles one source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5852,6 +6004,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesClusterTrustBundle {
         rename = "signerName"
     )]
     pub signer_name: Option<String>,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Select all ClusterTrustBundles that match this label selector.  Only has
@@ -5939,6 +6096,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesConfigMapItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// downwardAPI information about the downwardAPI data to project
@@ -5974,6 +6136,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesDownwardApiItems {
     )]
     pub resource_field_ref:
         Option<ClusterProjectedVolumeTemplateSourcesDownwardApiItemsResourceFieldRef>,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Required: Selects a field of the pod: only annotations, labels, name, namespace and uid are supported.
@@ -6114,6 +6281,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesPodCertificate {
     /// Kubelet's generated CSRs will be addressed to this signer.
     #[serde(rename = "signerName")]
     pub signer_name: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
     /// userAnnotations allow pod authors to pass additional information to
     /// the signer implementation.  Kubernetes does not restrict or validate this
     /// metadata in any way.
@@ -6177,6 +6349,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesSecretItems {
     /// May not contain the path element '..'.
     /// May not start with the string '..'.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// serviceAccountToken is information about the serviceAccountToken data to project
@@ -6203,6 +6380,11 @@ pub struct ClusterProjectedVolumeTemplateSourcesServiceAccountToken {
     /// path is the path relative to the mount point of the file to project the
     /// token into.
     pub path: String,
+    /// user is Optional: The owner UID of the created file.
+    /// If specified, the item-level user field takes precedence over defaultUser.
+    /// (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<i64>,
 }
 
 /// Replica cluster configuration
@@ -6708,8 +6890,8 @@ pub struct ClusterStoragePvcTemplate {
     /// * An existing PVC (PersistentVolumeClaim)
     /// If the provisioner or an external controller can support the specified data source,
     /// it will create a new volume based on the contents of the specified data source.
-    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+    /// copied to dataSource when dataSourceRef.namespace is not specified.
     /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
     #[serde(
         default,
@@ -6738,7 +6920,6 @@ pub struct ClusterStoragePvcTemplate {
     ///   specified.
     /// * While dataSource only allows local objects, dataSourceRef allows objects
     ///   in any namespaces.
-    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
     /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
     #[serde(
         default,
@@ -6802,8 +6983,8 @@ pub struct ClusterStoragePvcTemplate {
 /// * An existing PVC (PersistentVolumeClaim)
 /// If the provisioner or an external controller can support the specified data source,
 /// it will create a new volume based on the contents of the specified data source.
-/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+/// copied to dataSource when dataSourceRef.namespace is not specified.
 /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterStoragePvcTemplateDataSource {
@@ -6839,7 +7020,6 @@ pub struct ClusterStoragePvcTemplateDataSource {
 ///   specified.
 /// * While dataSource only allows local objects, dataSourceRef allows objects
 ///   in any namespaces.
-/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
 /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterStoragePvcTemplateDataSourceRef {
@@ -7000,8 +7180,8 @@ pub struct ClusterTablespacesStoragePvcTemplate {
     /// * An existing PVC (PersistentVolumeClaim)
     /// If the provisioner or an external controller can support the specified data source,
     /// it will create a new volume based on the contents of the specified data source.
-    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+    /// copied to dataSource when dataSourceRef.namespace is not specified.
     /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
     #[serde(
         default,
@@ -7030,7 +7210,6 @@ pub struct ClusterTablespacesStoragePvcTemplate {
     ///   specified.
     /// * While dataSource only allows local objects, dataSourceRef allows objects
     ///   in any namespaces.
-    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
     /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
     #[serde(
         default,
@@ -7094,8 +7273,8 @@ pub struct ClusterTablespacesStoragePvcTemplate {
 /// * An existing PVC (PersistentVolumeClaim)
 /// If the provisioner or an external controller can support the specified data source,
 /// it will create a new volume based on the contents of the specified data source.
-/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+/// copied to dataSource when dataSourceRef.namespace is not specified.
 /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterTablespacesStoragePvcTemplateDataSource {
@@ -7131,7 +7310,6 @@ pub struct ClusterTablespacesStoragePvcTemplateDataSource {
 ///   specified.
 /// * While dataSource only allows local objects, dataSourceRef allows objects
 ///   in any namespaces.
-/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
 /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterTablespacesStoragePvcTemplateDataSourceRef {
@@ -7431,8 +7609,8 @@ pub struct ClusterWalStoragePvcTemplate {
     /// * An existing PVC (PersistentVolumeClaim)
     /// If the provisioner or an external controller can support the specified data source,
     /// it will create a new volume based on the contents of the specified data source.
-    /// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-    /// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+    /// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+    /// copied to dataSource when dataSourceRef.namespace is not specified.
     /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
     #[serde(
         default,
@@ -7461,7 +7639,6 @@ pub struct ClusterWalStoragePvcTemplate {
     ///   specified.
     /// * While dataSource only allows local objects, dataSourceRef allows objects
     ///   in any namespaces.
-    /// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
     /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
     #[serde(
         default,
@@ -7525,8 +7702,8 @@ pub struct ClusterWalStoragePvcTemplate {
 /// * An existing PVC (PersistentVolumeClaim)
 /// If the provisioner or an external controller can support the specified data source,
 /// it will create a new volume based on the contents of the specified data source.
-/// When the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,
-/// and dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.
+/// dataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be
+/// copied to dataSource when dataSourceRef.namespace is not specified.
 /// If the namespace is specified, then dataSourceRef will not be copied to dataSource.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterWalStoragePvcTemplateDataSource {
@@ -7562,7 +7739,6 @@ pub struct ClusterWalStoragePvcTemplateDataSource {
 ///   specified.
 /// * While dataSource only allows local objects, dataSourceRef allows objects
 ///   in any namespaces.
-/// (Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.
 /// (Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ClusterWalStoragePvcTemplateDataSourceRef {
@@ -8262,6 +8438,14 @@ pub struct ClusterStatusPluginStatus {
         rename = "operatorCapabilities"
     )]
     pub operator_capabilities: Option<Vec<String>>,
+    /// PostgresCapabilities are the list of capabilities of the
+    /// plugin regarding the PostgreSQL configuration
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "postgresCapabilities"
+    )]
+    pub postgres_capabilities: Option<Vec<String>>,
     /// RestoreJobHookCapabilities are the list of capabilities of the
     /// plugin regarding the RestoreJobHook management
     #[serde(

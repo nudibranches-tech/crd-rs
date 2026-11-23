@@ -18,10 +18,72 @@ pub struct CiliumGatewayClassConfigSpec {
     /// Description helps describe a GatewayClass configuration with more details.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Envoy specifies proxy configuration options.
+    /// These settings control Envoy-specific behavior that is not part of the Gateway API standard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envoy: Option<CiliumGatewayClassConfigEnvoy>,
+    /// HTTPOptions specifies HTTP connection manager options.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "httpOptions"
+    )]
+    pub http_options: Option<CiliumGatewayClassConfigHttpOptions>,
     /// Service specifies the configuration for the generated Service.
     /// Note that not all fields from upstream Service.Spec are supported
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<CiliumGatewayClassConfigService>,
+    /// Telemetry specifies observability options for Gateways using this
+    /// GatewayClass configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<CiliumGatewayClassConfigTelemetry>,
+}
+
+/// Envoy specifies proxy configuration options.
+/// These settings control Envoy-specific behavior that is not part of the Gateway API standard.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumGatewayClassConfigEnvoy {
+    /// ServerHeaderTransformation controls the HTTP "Server" response header.
+    /// Defaults to OVERWRITE.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "serverHeaderTransformation"
+    )]
+    pub server_header_transformation:
+        Option<CiliumGatewayClassConfigEnvoyServerHeaderTransformation>,
+}
+
+/// Envoy specifies proxy configuration options.
+/// These settings control Envoy-specific behavior that is not part of the Gateway API standard.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum CiliumGatewayClassConfigEnvoyServerHeaderTransformation {
+    #[serde(rename = "OVERWRITE")]
+    Overwrite,
+    #[serde(rename = "APPEND_IF_ABSENT")]
+    AppendIfAbsent,
+    #[serde(rename = "PASS_THROUGH")]
+    PassThrough,
+}
+
+/// HTTPOptions specifies HTTP connection manager options.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumGatewayClassConfigHttpOptions {
+    /// GRPCWebTranslation controls Envoy's gRPC-web to gRPC request translation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "grpcWebTranslation"
+    )]
+    pub grpc_web_translation: Option<CiliumGatewayClassConfigHttpOptionsGrpcWebTranslation>,
+}
+
+/// GRPCWebTranslation controls Envoy's gRPC-web to gRPC request translation.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumGatewayClassConfigHttpOptionsGrpcWebTranslation {
+    /// Enabled controls Envoy's gRPC-web to gRPC request translation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 /// Service specifies the configuration for the generated Service.
@@ -106,6 +168,65 @@ pub enum CiliumGatewayClassConfigServiceLoadBalancerSourceRangesPolicy {
 pub enum CiliumGatewayClassConfigServiceType {
     LoadBalancer,
     NodePort,
+}
+
+/// Telemetry specifies observability options for Gateways using this
+/// GatewayClass configuration.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumGatewayClassConfigTelemetry {
+    /// AccessLogs configures Envoy access logging for generated Gateway
+    /// listeners.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "accessLogs"
+    )]
+    pub access_logs: Option<Vec<CiliumGatewayClassConfigTelemetryAccessLogs>>,
+}
+
+/// AccessLogs defines an Envoy access log configuration, including its output
+/// format and the generated proxy components that should emit it.
+/// Access logs are currently written to Envoy stdout.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct CiliumGatewayClassConfigTelemetryAccessLogs {
+    /// Format specifies the access log output format.
+    pub format: CiliumGatewayClassConfigTelemetryAccessLogsFormat,
+    /// JSON maps access log field names to Envoy command operators.
+    /// It is used when Format is "JSON".
+    /// For available format specifiers, see the Envoy documentation:
+    /// - <https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage>
+    /// Note: Always refer to the documentation matching the specific Envoy version you are running.
+    /// The following Cilium-specific formatters are also supported:
+    /// - %CILIUM_GATEWAY_NAME% -- replaced with the Gateway resource name.
+    /// - %CILIUM_GATEWAY_NAMESPACE% -- replaced with the Gateway resource namespace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json: Option<BTreeMap<String, String>>,
+    /// Targets specifies the generated Envoy proxy components where access logs
+    /// are emitted. If omitted, access logs are emitted for HTTP traffic only.
+    /// HTTP targets Envoy HTTP connection managers. TCP targets Envoy TCP proxies,
+    /// including TLS passthrough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<String>>,
+    /// Text specifies the Envoy access log format string.
+    /// It is used when Format is "Text".
+    /// For available format specifiers, see the Envoy documentation:
+    /// - <https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage>
+    /// Note: Always refer to the documentation matching the specific Envoy version you are running.
+    /// The following Cilium-specific formatters are also supported:
+    /// - %CILIUM_GATEWAY_NAME% -- replaced with the Gateway resource name.
+    /// - %CILIUM_GATEWAY_NAMESPACE% -- replaced with the Gateway resource namespace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// AccessLogs defines an Envoy access log configuration, including its output
+/// format and the generated proxy components that should emit it.
+/// Access logs are currently written to Envoy stdout.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub enum CiliumGatewayClassConfigTelemetryAccessLogsFormat {
+    #[serde(rename = "JSON")]
+    Json,
+    Text,
 }
 
 /// Status is the status of the policy.
